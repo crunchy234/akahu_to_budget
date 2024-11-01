@@ -74,7 +74,7 @@ akahu_headers = {
 
 
 # Load existing mapping from a JSON file
-def load_existing_mapping(mapping_file="akahu_to_budget_mapping.json"):
+def load_existing_mapping(mapping_file="akahu_budget_mapping.json"):
     if pathlib.Path(mapping_file).exists():
         with open(mapping_file, "r") as f:
             data = json.load(f)
@@ -388,7 +388,7 @@ def get_fuzzy_match_suggestion(akahu_account, target_accounts, akahu_to_account_
     # Create a list of unmapped target account names and their corresponding original indices for fuzzy matching
     unmapped_accounts = []
     unmapped_indices = []
-
+    logging.info("Falling back to FuzzyWuzzy for matching suggestion.")
     for idx, target_account in enumerate(target_accounts, start=1):
         account_id = target_account['id']
         account_name = target_account['name']
@@ -461,7 +461,7 @@ def match_accounts(akahu_to_account_mapping, akahu_accounts, target_accounts, ac
 
         # Display the Akahu account details
         print(f"\nAkahu Account: {akahu_account['name']} (Connection: {akahu_account['connection']})")
-        print("Here is a list of target accounts:")
+        print(f"Here is a list of {account_type} accounts:")
         valid_index = 1
 
         for target_account in target_accounts:
@@ -490,13 +490,14 @@ def match_accounts(akahu_to_account_mapping, akahu_accounts, target_accounts, ac
             selected_account = seq_to_acct(validated_index, target_accounts)
             selected_id = selected_account['id']
             selected_name = selected_account['name']
-            akahu_to_account_mapping[akahu_id] = {
+            akahu_to_account_mapping.setdefault(akahu_id, {})
+            akahu_to_account_mapping[akahu_id].update({
                 target_account_key: selected_id,
                 target_account_name: selected_name,
                 "akahu_id": akahu_id,
                 "akahu_name": akahu_name,
                 "matched_date": datetime.now().isoformat(),
-            }
+            })
             print(
                 f"Mapped Akahu account '{akahu_account['name']}' to target account '{selected_name}'.")
     return akahu_to_account_mapping
@@ -579,10 +580,10 @@ def main():
 
             new_mapping = existing_mapping.copy()
 
-            # Step 6: Match Akahu accounts to YNAB accounts interactively
+            # Step 5: Match Akahu accounts to YNAB accounts interactively
             new_mapping = match_accounts(new_mapping, akahu_accounts, ynab_accounts, "ynab", use_openai=True)
 
-            # Step 5: Match Akahu accounts to Actual accounts interactively
+            # Step 6: Match Akahu accounts to Actual accounts interactively
             new_mapping = match_accounts(new_mapping, akahu_accounts, actual_accounts, "actual", use_openai=True)
 
 

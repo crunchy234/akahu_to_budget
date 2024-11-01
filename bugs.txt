@@ -1,0 +1,16 @@
+1. Account type (ON Budget vs Tracking) is not being set
+2. Akahu Budgeet Mapping is not setting the YNAB accounts?
+3.
+
+mask=None tombstone=0 official_name=None bank_id=None subtype=None
+offbudget=1
+sort_order=16384.0
+balance_current=None
+closed=0
+type=None
+account_id=None
+name='To Repay: Mark'
+balance_available=None
+id='eae201d4-5cb1-48ab-a0d1-337b3c4b9e8e'
+balance_limit=None
+account_sync_source=None

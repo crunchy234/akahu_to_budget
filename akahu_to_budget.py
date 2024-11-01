@@ -413,11 +413,10 @@ def create_adjustment_txn_ynab(ynab_budget_id, ynab_account_id, akahu_balance, y
         logging.error(f"Failed to create balance adjustment transaction: {e}")
 
 
-def main_loop(actual):
+def sync_to_ab(actual):
     """Main loop to process each Akahu account and load transactions into Actual Budget."""
     for akahu_account_id, mapping_entry in g_mapping_list.items():
         actual_account_id = mapping_entry.get('actual_account_id', None)
-        ynab_account_id = mapping_entry.get('ynab_acocunt_id', None)
         account_type = mapping_entry.get('account_type', 'On Budget')
         logging.info(f"Processing Akahu account: {akahu_account_id} linked to Actual account: {actual_account_id}")
 
@@ -431,22 +430,42 @@ def main_loop(actual):
 
             if akahu_df is not None and not akahu_df.empty:
                 # Sync to Actual Budget if configured and relevant IDs are present
-                if SYNC_TO_AB:
-                    if mapping_entry.get('actual_budget_id') and mapping_entry.get('actual_account_id'):
-                        # Sync to Actual Budget
-                        load_transactions_into_actual(akahu_df, mapping_entry)
-                    else:
-                        logging.warning(
-                            f"Skipping sync to Actual Budget for Akahu account {akahu_account_id}: Missing Actual Budget IDs.")
+                if mapping_entry.get('actual_budget_id') and mapping_entry.get('actual_account_id'):
+                    # Sync to Actual Budget
+                    load_transactions_into_actual(akahu_df, mapping_entry)
+                else:
+                    logging.warning(
+                        f"Skipping sync to Actual Budget for Akahu account {akahu_account_id}: Missing Actual Budget IDs.")
 
+        else:
+            logging.error(f"Unknown account type for Akahu account: {akahu_account_id}")
+
+    # Save updated mapping after processing all accounts
+    save_updated_mapping()
+
+def sync_to_ynab(actual):
+    """Main loop to process each Akahu account and load transactions into Actual Budget."""
+    for akahu_account_id, mapping_entry in g_mapping_list.items():
+        ynab_account_id = mapping_entry.get('ynab_acocunt_id', None)
+        account_type = mapping_entry.get('account_type', 'On Budget')
+        logging.info(f"Processing Akahu account: {akahu_account_id} linked to YNAB account: {ynab_account_id}")
+
+        if account_type == 'Tracking':
+            # Handle the tracking account balance adjustment using the `handle_tracking_account()` function
+            handle_tracking_account_ynab(mapping_entry)
+        elif account_type == 'On Budget':
+            # Handle On-Budget account transactions
+            last_reconciled_at = mapping_entry.get('ynab_synced_datetime', '2024-01-01T00:00:00Z')
+            akahu_df = get_all_akahu(akahu_account_id, last_reconciled_at)
+
+            if akahu_df is not None and not akahu_df.empty:
                 # Sync to YNAB if configured and relevant IDs are present
-                if SYNC_TO_YNAB:
-                    if mapping_entry.get('ynab_budget_id') and mapping_entry.get('ynab_account_id'):
-                        # Sync to YNAB
-                        load_transactions_into_ynab(akahu_df, mapping_entry['ynab_budget_id'], mapping_entry['ynab_account_id'])
-                    else:
-                        logging.warning(
-                            f"Skipping sync to YNAB for Akahu account {akahu_account_id}: Missing YNAB IDs.")
+                if mapping_entry.get('ynab_budget_id') and mapping_entry.get('ynab_account_id'):
+                    # Sync to YNAB
+                    load_transactions_into_ynab(akahu_df, mapping_entry['ynab_budget_id'], mapping_entry['ynab_account_id'])
+                else:
+                    logging.warning(
+                        f"Skipping sync to YNAB for Akahu account {akahu_account_id}: Missing YNAB IDs.")
         else:
             logging.error(f"Unknown account type for Akahu account: {akahu_account_id}")
 
@@ -481,16 +500,19 @@ app = Flask(__name__)
 @app.route('/sync', methods=['GET'])
 def run_full_sync():
     """Endpoint to run a full sync of all accounts."""
-    with Actual(
-            base_url=ENVs['ACTUAL_SERVER_URL'],
-            password=ENVs['ACTUAL_PASSWORD'],
-            file=ENVs['ACTUAL_SYNC_ID'],
-            encryption_password=ENVs['ACTUAL_ENCRYPTION_KEY']
-    ) as actual:
-        logging.info("API initialized successfully for full sync.")
-        actual.download_budget()
-        logging.info("Budget downloaded successfully for full sync.")
-        main_loop(actual)
+    if SYNC_TO_AB:
+        with Actual(
+                base_url=ENVs['ACTUAL_SERVER_URL'],
+                password=ENVs['ACTUAL_PASSWORD'],
+                file=ENVs['ACTUAL_SYNC_ID'],
+                encryption_password=ENVs['ACTUAL_ENCRYPTION_KEY']
+        ) as actual:
+            logging.info("API initialized successfully for full sync.")
+            actual.download_budget()
+            logging.info("Budget downloaded successfully for full sync.")
+            sync_to_ab(actual)
+    if SYNC_TO_YNAB:
+        sync_to_ynab()
     return jsonify({"status": "full sync complete"}), 200
 
 @app.route('/status', methods=['GET'])
