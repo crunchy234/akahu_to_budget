@@ -67,7 +67,7 @@ akahu_headers = {
 }
 
 # Load existing mapping from a JSON file
-mapping_file = "akahu_to_budget_mapping.json"
+mapping_file = "akahu_budget_mapping.json"
 
 def load_existing_mapping():
     """Load the mapping of Akahu accounts to Actual accounts from a JSON file."""
@@ -77,7 +77,7 @@ def load_existing_mapping():
             akahu_accounts = data.get('akahu_accounts', [])
             actual_accounts = data.get('actual_accounts', [])
             ynab_accounts = data.get('ynab_accounts', [])
-            mapping = {entry['akahu_id']: entry for entry in data.get('mapping', [])}
+            mapping = data.get('mapping')
             logging.info(f"Mapping loaded successfully from {mapping_file}")
             return akahu_accounts, actual_accounts, ynab_accounts, mapping
     else:
@@ -285,7 +285,7 @@ def handle_tracking_account_actual(mapping_entry, actual):
 # Save updated mapping - basically just the date last synced
 def save_updated_mapping():
     """Save the mapping of Akahu accounts, Actual accounts, and YNAB accounts to a JSON file."""
-    with open("akahu_to_budget_mapping.json", "w") as f:
+    with open(mapping_file, "w") as f:
         json.dump({
             "akahu_accounts": g_akahu_accounts,
             "actual_accounts": g_actual_accounts,
@@ -415,9 +415,9 @@ def create_adjustment_txn_ynab(ynab_budget_id, ynab_account_id, akahu_balance, y
 
 def main_loop(actual):
     """Main loop to process each Akahu account and load transactions into Actual Budget."""
-    for mapping_entry in g_mapping_list:
-        akahu_account_id = mapping_entry['akahu_id']
-        actual_account_id = mapping_entry['actual_account_id']
+    for akahu_account_id, mapping_entry in g_mapping_list.items():
+        actual_account_id = mapping_entry.get('actual_account_id', None)
+        ynab_account_id = mapping_entry.get('ynab_acocunt_id', None)
         account_type = mapping_entry.get('account_type', 'On Budget')
         logging.info(f"Processing Akahu account: {akahu_account_id} linked to Actual account: {actual_account_id}")
 
