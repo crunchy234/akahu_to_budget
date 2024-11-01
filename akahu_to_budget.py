@@ -290,7 +290,7 @@ def save_updated_mapping():
             "akahu_accounts": g_akahu_accounts,
             "actual_accounts": g_actual_accounts,
             "ynab_accounts": g_ynab_accounts,
-            "mapping": list(g_mapping_list.values())  # Convert the dictionary back to a list for saving
+            "mapping": g_mapping_list  # Convert the dictionary back to a list for saving
         }, f, indent=4)
         logging.info(f"Mapping updated and saved to akahu_to_budget_mapping.json")
 

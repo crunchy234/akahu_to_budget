@@ -35,7 +35,7 @@ logging.basicConfig(
 )
 
 # Load environment variables from the parent directory's .env file
-load_dotenv(dotenv_path=pathlib.Path(__file__).parent.parent / '.env')
+load_dotenv(dotenv_path=pathlib.Path(__file__).parent / '.env')
 
 required_envs = [
     'ACTUAL_SERVER_URL',
