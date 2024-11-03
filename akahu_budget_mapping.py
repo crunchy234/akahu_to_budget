@@ -10,6 +10,7 @@ import os
 import pathlib
 import logging
 import json
+import sys
 from datetime import datetime
 
 # Interactive matching of accounts
@@ -21,7 +22,6 @@ from actual import Actual
 from actual.queries import (
     get_accounts,
 )
-from fuzzywuzzy import process
 import openai
 
 # Configure logging
@@ -88,61 +88,88 @@ def load_existing_mapping(mapping_file="akahu_budget_mapping.json"):
             return akahu_accounts, actual_accounts, ynab_accounts, mapping
     return {}, {}, {}, {}
 
+def is_simple_value(value):
+    # Check if the value is a trivial type: int, float, str, bool, or None
+    return isinstance(value, (int, float, str, bool)) or value is None
+
+def shallow_compare_dicts(dict1, dict2):
+    # Filter out only the simple values from both dictionaries
+    dict1_filtered = {k: v for k, v in dict1.items() if is_simple_value(v)}
+    dict2_filtered = {k: v for k, v in dict2.items() if is_simple_value(v)}
+
+    # Compare filtered versions
+    return dict1_filtered == dict2_filtered
+
 def fetch_ynab_accounts():
-    """
-    Fetches YNAB accounts by making an API call to YNAB.
-    Filters to only retrieve accounts for the budget specified by YNAB_BUDGET_ID environment variable.
-    :return: A dictionary of YNAB accounts.
-    """
     logging.info("Fetching YNAB accounts...")
     try:
         ynab_budget_id = os.getenv("YNAB_BUDGET_ID")
         if not ynab_budget_id:
             raise ValueError("YNAB_BUDGET_ID environment variable is not set.")
 
-        # Only request the specific budget defined in the environment variable
         accounts_json = requests.get(f"{ynab_endpoint}budgets/{ynab_budget_id}/accounts", headers=ynab_headers).json()
-        ynab_accounts = []
+        ynab_accounts = {}
         for account in accounts_json.get("data", {}).get("accounts", []):
             if not account.get("closed", False):
-                ynab_accounts.append({
-                    "id": account["id"],
-                    "name": account["name"],
-                    "budget_id": ynab_budget_id,
-                    "budget_name": "YNAB Budget",  # Assuming the budget name isn't strictly required
-                    "type": account["type"],
-                    "balance": account["balance"] / 1000.0  # Convert from milliunits to standard units
-                })
+                ynab_accounts[account["id"]] = {
+                    key: value for key, value in account.items() if is_simple_value(value)
+                }
         logging.info(f"Fetched {len(ynab_accounts)} YNAB accounts for budget {ynab_budget_id}.")
         return ynab_accounts
     except Exception as e:
         logging.error(f"Failed to fetch YNAB accounts: {e}")
         return {}
 
+def fetch_actual_accounts(actual_client):
+    """Fetch accounts from Actual Budget if enabled."""
+    try:
+        # Download the budget
+        actual_client.download_budget()
+        logging.info("Budget downloaded successfully.")
 
-
+        # Fetch Actual Budget accounts and convert to dictionary
+        latest_actual_accounts = get_accounts(actual_client.session)
+        open_actual_accounts = {
+            acc.id: {key: value for key, value in acc.__dict__.items() if
+                     not callable(value) and not key.startswith('_') and is_simple_value(value)}
+            for acc in latest_actual_accounts if not acc.closed
+        }
+        logging.info(f"Fetched {len(open_actual_accounts)} open Actual accounts.")
+        return open_actual_accounts
+    except Exception as e:
+        logging.error(f"Failed to fetch Actual accounts: {e}")
+        raise
 
 def combine_accounts(latest_accounts, existing_accounts):
+    """
+    Combines latest and existing accounts, preserving date_first_loaded.
+    Now handles accounts as dictionaries instead of lists.
+    """
     current_date = datetime.now().isoformat()
-    combined_accounts = []
+    combined_accounts = {}
     deleted_accounts = []
-    existing_ids = {account['id']: account for account in existing_accounts}
-    latest_ids = {account['id'] for account in latest_accounts}
 
-    # Merge latest and existing accounts, preserving date_first_loaded when applicable
-    for account_data in latest_accounts:
-        account_id = account_data['id']
-        if account_id in existing_ids:
+    # Convert latest_accounts list to dictionary if it's not already
+    if isinstance(latest_accounts, list):
+        latest_accounts = {acc['id']: acc for acc in latest_accounts}
+
+    # Convert existing_accounts list to dictionary if it's not already
+    if isinstance(existing_accounts, list):
+        existing_accounts = {acc['id']: acc for acc in existing_accounts}
+
+    # Merge latest and existing accounts
+    for account_id, account_data in latest_accounts.items():
+        if account_id in existing_accounts:
             # Preserve date_first_loaded from existing account
-            account_data['date_first_loaded'] = existing_ids[account_id].get('date_first_loaded', current_date)
+            account_data['date_first_loaded'] = existing_accounts[account_id].get('date_first_loaded', current_date)
         else:
             # New account, set date_first_loaded to current date
             account_data['date_first_loaded'] = current_date
-        combined_accounts.append(account_data)
+        combined_accounts[account_id] = account_data
 
     # Identify accounts to delete
-    for account_id in existing_ids:
-        if account_id not in latest_ids:
+    for account_id in existing_accounts:
+        if account_id not in latest_accounts:
             deleted_accounts.append(account_id)
 
     return combined_accounts, deleted_accounts
@@ -153,17 +180,14 @@ def merge_and_update_mapping(existing_mapping, latest_akahu_accounts, latest_act
     Merges and updates the account mapping to ensure consistency between Akahu, Actual, and YNAB accounts.
 
     :param existing_mapping: The current mapping of Akahu to Actual and/or YNAB accounts.
-    :param latest_akahu_accounts: The latest Akahu accounts fetched from Akahu API (as a list of dictionaries).
-    :param latest_actual_accounts: The latest Actual accounts fetched from Actual API (as a list of dictionaries).
-    :param latest_ynab_accounts: The latest YNAB accounts fetched from YNAB API (as a list of dictionaries).
-    :param existing_akahu_accounts: Existing Akahu accounts in the mapping (as a list of dictionaries).
-    :param existing_actual_accounts: Existing Actual accounts in the mapping (as a list of dictionaries).
-    :param existing_ynab_accounts: Existing YNAB accounts in the mapping (as a list of dictionaries).
+    :param latest_akahu_accounts: The latest Akahu accounts fetched from Akahu API (as a dictionary of dictionaries).
+    :param latest_actual_accounts: The latest Actual accounts fetched from Actual API (as a dictionary of dictionaries).
+    :param latest_ynab_accounts: The latest YNAB accounts fetched from YNAB API (as a dictionary of dictionaries).
+    :param existing_akahu_accounts: Existing Akahu accounts in the mapping (as a dictionary of dictionaries).
+    :param existing_actual_accounts: Existing Actual accounts in the mapping (as a dictionary of dictionaries).
+    :param existing_ynab_accounts: Existing YNAB accounts in the mapping (as a dictionary of dictionaries).
     :return: Updated mapping, akahu accounts, actual accounts, and ynab accounts.
     """
-    # Get current date for date_first_loaded if needed
-
-
     # Step 1: Combine Akahu Accounts
     combined_akahu_accounts, deleted_akahu_accounts = combine_accounts(latest_akahu_accounts, existing_akahu_accounts)
 
@@ -189,19 +213,21 @@ def merge_and_update_mapping(existing_mapping, latest_akahu_accounts, latest_act
     ynab_to_delete = []
     for akahu_id in list(updated_mapping.keys()):
         # Identify Akahu accounts that no longer exist
-        if akahu_id not in [acc['id'] for acc in combined_akahu_accounts]:
+        if akahu_id not in combined_akahu_accounts:
             akahu_to_delete.append(akahu_id)
             continue
 
-        # Identify Actual accounts that no longer exist
-        actual_id = updated_mapping[akahu_id].get("actual", {}).get("id")
-        if actual_id and actual_id not in [acc['id'] for acc in combined_actual_accounts]:
-            actual_to_delete.append((actual_id, akahu_id))
+        # Identify Actual accounts that no longer exist if Actual is available and not empty
+        # Always present even if empty, no need for this check
+            actual_id = updated_mapping[akahu_id].get("actual_account_id")
+            if actual_id and actual_id not in combined_actual_accounts:
+                actual_to_delete.append((actual_id, akahu_id))
 
-        # Identify YNAB accounts that no longer exist
-        ynab_id = updated_mapping[akahu_id].get("ynab", {}).get("id")
-        if ynab_id and ynab_id not in [acc['id'] for acc in combined_ynab_accounts]:
-            ynab_to_delete.append((ynab_id, akahu_id))
+        # Identify YNAB accounts that no longer exist if YNAB is available and not empty
+        # Always present even if empty, no need for this check
+            ynab_id = updated_mapping[akahu_id].get("ynab_account_id")
+            if ynab_id and ynab_id not in combined_ynab_accounts:
+                ynab_to_delete.append((ynab_id, akahu_id))
 
     # Step 6: Report to User and Get Confirmation
     if akahu_to_delete or actual_to_delete or ynab_to_delete:
@@ -221,20 +247,20 @@ def merge_and_update_mapping(existing_mapping, latest_akahu_accounts, latest_act
                 logging.info(f"Deleted Akahu account with ID {akahu_id}.")
             for actual_id, akahu_id in actual_to_delete:
                 if updated_mapping[akahu_id].get('actual_account_id') == actual_id:
-                    updated_mapping[akahu_id]['actual_account_id'] = None
-                    updated_mapping[akahu_id]['actual_budget_id'] = None
-                    updated_mapping[akahu_id]['actual_budget_name'] = None
-                    updated_mapping[akahu_id]['actual_account_name'] = None
+                    updated_mapping[akahu_id].pop('actual_account_id', None)
+                    updated_mapping[akahu_id].pop('actual_budget_id', None)
+                    updated_mapping[akahu_id].pop('actual_budget_name', None)
+                    updated_mapping[akahu_id].pop('actual_account_name', None)
                 logging.info(f"Removed Actual account with ID {actual_id} from Akahu mapping {akahu_id}.")
             for ynab_id, akahu_id in ynab_to_delete:
                 if updated_mapping[akahu_id].get('ynab_account_id') == ynab_id:
-                    updated_mapping[akahu_id]['ynab_account_id'] = None
-                    updated_mapping[akahu_id]['ynab_budget_id'] = None
-                    updated_mapping[akahu_id]['ynab_budget_name'] = None
-                    updated_mapping[akahu_id]['ynab_account_name'] = None
+                    updated_mapping[akahu_id].pop('ynab_account_id', None)
+                    updated_mapping[akahu_id].pop('ynab_budget_id', None)
+                    updated_mapping[akahu_id].pop('ynab_budget_name', None)
+                    updated_mapping[akahu_id].pop('ynab_account_name', None)
                 logging.info(f"Removed YNAB account with ID {ynab_id} from Akahu mapping {akahu_id}.")
 
-    # Convert updated_mapping back to list format for each account type
+    # Return updated mappings
     return updated_mapping, combined_akahu_accounts, combined_actual_accounts, combined_ynab_accounts
 
 
@@ -248,11 +274,26 @@ def fetch_akahu_accounts():
         raise RuntimeError(f"Failed to fetch Akahu accounts: {response.status_code}")
 
     accounts_data = response.json().get("items", [])
-    akahu_accounts = [{"id": acc["_id"], "name": acc["name"],
-                       "connection": acc.get("connection", {}).get("name", "Unknown Connection")} for acc in
-                      accounts_data]
+    akahu_accounts = {}
+    for acc in accounts_data:
+        if acc.get("status", "").upper() == "ACTIVE":
+            acc_copy = acc.copy()
+
+            # Rename '_id' to 'id' in the copied dictionary
+            acc_copy = {
+                'id' if key == '_id' else key: value
+                for key, value in acc_copy.items()
+            }
+            # Transform 'connection' to keep only the 'name'
+            if 'connection' in acc_copy and isinstance(acc_copy['connection'], dict):
+                acc_copy['connection'] = acc_copy['connection'].get('name', "Unknown Connection")
+
+            # Use the updated 'id' value as the key for akahu_accounts
+            akahu_accounts[acc_copy['id']] = acc_copy
+
     logging.info(f"Fetched {len(akahu_accounts)} Akahu accounts.")
     return akahu_accounts
+
 
 def validate_user_input(response_content, target_accounts, akahu_to_account_mapping, target_account_key):
     """
@@ -275,6 +316,10 @@ def validate_user_input(response_content, target_accounts, akahu_to_account_mapp
     try:
         # Attempt to convert the response to an integer
         chosen_seq = int(response_content)
+
+        # Handle the 'no match' case where chosen_seq is 0
+        if chosen_seq == 0:
+            return 0
 
         # Find the account with the matching sequence number
         account = next((account for account in target_accounts if account['seq'] == chosen_seq), None)
@@ -323,6 +368,7 @@ def get_openai_match_suggestion(akahu_account, target_accounts, akahu_to_account
         f"Connection: {akahu_account['connection']}\n\n"
         "Here is a list of target accounts:\n"
     )
+    prompt += f"0. This account probably does not match any options\n"
 
     # Add each target account to the prompt, skipping already mapped accounts
     for idx, account in enumerate(target_accounts, start=1):
@@ -337,17 +383,18 @@ def get_openai_match_suggestion(akahu_account, target_accounts, akahu_to_account
         # Add the current valid target account to the prompt
         prompt += f"{account_seq}. {account_name}\n"
 
+
     # Add the instruction at the end of the prompt
     prompt += "\nPlease type the number corresponding to the best match:"
 
     try:
         # Call the OpenAI API
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system",
-                 "content": "You are an assistant that only responds with a number to select a financial account match. Respond strictly with a number—no explanations, no commentary, nothing but a number. ANY other output will be treated as invalid."},
-                {"role": "user", "content": prompt}
+                 "content": "Select the best match by responding with a number, including 0 if no match is suitable. Respond strictly with a number—no explanations or commentary. Any other output will be treated as invalid."},
+                 {"role": "user", "content": prompt}
             ],
             max_tokens=2,
             temperature=0,
@@ -412,7 +459,7 @@ def get_fuzzy_match_suggestion(akahu_account, target_accounts, akahu_to_account_
             return original_index  # Return the original 1-based index
 
     # Return None if no confident match is found
-    return None
+    return "0"
 
 
 def seq_to_acct(suggested_index, target_accounts):
@@ -421,13 +468,7 @@ def seq_to_acct(suggested_index, target_accounts):
 
 def match_accounts(akahu_to_account_mapping, akahu_accounts, target_accounts, account_type, use_openai=True):
     """
-    Matches Akahu accounts to either Actual or YNAB accounts interactively, with suggestions from OpenAI or fuzzy matching.
-
-    :param akahu_to_account_mapping: Dictionary of dictionaries representing the mapping of Akahu accounts.  Edited throughout this function.
-    :param akahu_accounts: List of dictionaries representing Akahu accounts.
-    :param target_accounts: List of dictionaries representing target accounts (either Actual or YNAB).
-    :param account_type: A string, either 'actual' or 'ynab' to determine which account type to match.
-    :param use_openai: Boolean, if True uses OpenAI for matching suggestion, otherwise uses fuzzy matching.
+    Updated to handle accounts as dictionaries instead of lists.
     """
     if account_type == 'actual':
         target_account_key = 'actual_account_id'
@@ -438,33 +479,32 @@ def match_accounts(akahu_to_account_mapping, akahu_accounts, target_accounts, ac
     else:
         raise ValueError("Invalid account type provided. Must be either 'actual' or 'ynab'.")
 
-    for idx, target_account in enumerate(target_accounts, start=1):
+    # Convert target_accounts to list and add sequence numbers
+    target_accounts_list = sorted(target_accounts.values(), key=lambda x: x['name'].lower())
+    for idx, target_account in enumerate(target_accounts_list, start=1):
         target_account['seq'] = idx
 
-    for akahu_account in akahu_accounts:
-        akahu_id = akahu_account['id']
+    for akahu_id, akahu_account in sorted(akahu_accounts.items(), key=lambda x: x[1]['name'].lower()):
         akahu_name = akahu_account['name']
 
         # Check if Akahu account is already mapped
         if akahu_id in akahu_to_account_mapping and target_account_key in akahu_to_account_mapping[akahu_id]:
-            print(
-                f"Akahu account '{akahu_account['name']}' is already mapped to {account_type.capitalize()} account. Skipping.")
-            continue  # Skip if already mapped
+            print(f"Akahu account '{akahu_name}' is already mapped to {account_type.capitalize()} account. Skipping.")
+            continue
 
-        # Suggest a match using either OpenAI or FuzzyWuzzy
+        # Get suggestion using either OpenAI or FuzzyWuzzy
         if use_openai:
-            suggested_index = get_openai_match_suggestion(akahu_account, target_accounts, akahu_to_account_mapping,
+            suggested_index = get_openai_match_suggestion(akahu_account, target_accounts_list, akahu_to_account_mapping,
                                                           target_account_key)
         else:
-            suggested_index = get_fuzzy_match_suggestion(akahu_account, target_accounts, akahu_to_account_mapping,
+            suggested_index = get_fuzzy_match_suggestion(akahu_account, target_accounts_list, akahu_to_account_mapping,
                                                          target_account_key)
 
         # Display the Akahu account details
-        print(f"\nAkahu Account: {akahu_account['name']} (Connection: {akahu_account['connection']})")
+        print(f"\nAkahu Account: {akahu_name} (Connection: {akahu_account['connection']})")
         print(f"Here is a list of {account_type} accounts:")
-        valid_index = 1
 
-        for target_account in target_accounts:
+        for target_account in target_accounts_list:
             account_id = target_account['id']
             account_name = target_account['name']
             seq = target_account['seq']
@@ -476,122 +516,212 @@ def match_accounts(akahu_to_account_mapping, akahu_accounts, target_accounts, ac
                 print(f"{seq}. {account_name}")
 
         # Display the suggestion if one exists
-        if suggested_index is not None:
-            print(f"Suggested match: {suggested_index}. {seq_to_acct(suggested_index, target_accounts)["name"]}")
+        if suggested_index == 0:
+            print("No suitable match found.")
+        elif suggested_index is not None:
+            print(f"Suggested match: {suggested_index}. {seq_to_acct(suggested_index, target_accounts_list)['name']}")
+        else:
+            logging.debug("No confident match found.")
 
         # Prompt user for input
         user_input = input("Enter the number corresponding to the best match (or press Enter to skip): ")
-        validated_index = validate_user_input(user_input, target_accounts, akahu_to_account_mapping, target_account_key)
+        validated_index = validate_user_input(user_input, target_accounts_list, akahu_to_account_mapping,
+                                              target_account_key)
         if validated_index is None:
             if user_input != "":
                 print("Invalid input.")
-            continue  # Skip this account or retry
+            continue
         else:
-            selected_account = seq_to_acct(validated_index, target_accounts)
+            selected_account = seq_to_acct(validated_index, target_accounts_list)
             selected_id = selected_account['id']
             selected_name = selected_account['name']
-            akahu_to_account_mapping.setdefault(akahu_id, {})
-            akahu_to_account_mapping[akahu_id].update({
+            akahu_to_account_mapping.setdefault(akahu_id, {}).update({
                 target_account_key: selected_id,
                 target_account_name: selected_name,
                 "akahu_id": akahu_id,
                 "akahu_name": akahu_name,
-                "matched_date": datetime.now().isoformat(),
+                f"{account_type}_matched_date": datetime.now().isoformat(),
             })
-            print(
-                f"Mapped Akahu account '{akahu_account['name']}' to target account '{selected_name}'.")
+            print(f"Mapped Akahu account '{akahu_name}' to target account '{selected_name}'.")
+
     return akahu_to_account_mapping
 
-def save_mapping(mapping, akahu_accounts, actual_accounts, ynab_accounts, mapping_file="akahu_budget_mapping.json"):
+
+def remove_seq(data):
+    """
+    Recursively removes 'seq' keys from dictionaries while preserving structure.
+    Works with nested dictionaries and dictionary values in lists.
+
+    Args:
+        data: Can be a dictionary, list, or any other type
+
+    Returns:
+        The same data structure with all 'seq' keys removed from any dictionaries
+    """
+    if isinstance(data, dict):
+        return {
+            key: remove_seq(value)
+            for key, value in data.items()
+            if key != 'seq'
+        }
+    elif isinstance(data, list):
+        return [remove_seq(item) for item in data]
+    else:
+        return data
+
+
+def save_mapping(data_to_save, mapping_file="akahu_budget_mapping.json"):
     """
     Saves the mapping along with Akahu, Actual, and YNAB accounts to a JSON file.
 
-    :param mapping: The current mapping of Akahu to Actual and/or YNAB accounts.
-    :param akahu_accounts: Dictionary of Akahu accounts.
-    :param actual_accounts: Dictionary of Actual accounts.
-    :param ynab_accounts: Dictionary of YNAB accounts.
+
+    :param data_to_save: dictionary comprising
+     mapping: The current mapping of Akahu to Actual and/or YNAB accounts.
+     akahu_accounts: Dictionary of Akahu accounts.
+     actual_accounts: Dictionary of Actual accounts.
+     ynab_accounts: Dictionary of YNAB accounts.
     :param mapping_file: The file path to save the mapping JSON.
     """
     # Construct final data dictionary
-    data_to_save = {
-        "akahu_accounts": akahu_accounts,
-        "actual_accounts": actual_accounts,
-        "ynab_accounts": ynab_accounts,
-        "mapping": mapping
-    }
 
     # Save the new mapping dictionary to JSON
     try:
+        # Attempt to serialize the data to JSON in memory
+        serialized_data = json.dumps(data_to_save, indent=4)
+        data_dict = json.loads(serialized_data)
+        required_keys = {"akahu_accounts", "actual_accounts", "ynab_accounts", "mapping"}
+
+        # Check if all required keys are present
+        if not required_keys.issubset(data_dict.keys()):
+            raise ValueError(
+                f"Serialized data is missing one or more required keys: {required_keys - data_dict.keys()}")
+
+        # Only open the file for writing if serialization is successful
         with open(mapping_file, "w") as f:
-            json.dump(data_to_save, f, indent=4)
+            f.write(serialized_data)
+
         logging.info("New mapping saved successfully.")
     except Exception as e:
         logging.error(f"Failed to save mapping: {e}")
 
+
+def check_for_changes(existing_akahu_accounts, latest_akahu_accounts, existing_actual_accounts, latest_actual_accounts, existing_ynab_accounts, latest_ynab_accounts):
+    akahu_accounts_match = True
+
+    for key in existing_akahu_accounts:
+        if key in latest_akahu_accounts:
+            if not shallow_compare_dicts(existing_akahu_accounts[key], latest_akahu_accounts[key]):
+                akahu_accounts_match = False
+                break
+        else:
+            akahu_accounts_match = False
+            break
+
+    # Compare existing_actual_accounts and latest_actual_accounts
+    actual_accounts_match = True
+
+    for key in existing_actual_accounts:
+        if key in latest_actual_accounts:
+            if not shallow_compare_dicts(existing_actual_accounts[key], latest_actual_accounts[key]):
+                actual_accounts_match = False
+                break
+        else:
+            actual_accounts_match = False
+            break
+
+    # Compare existing_ynab_accounts and latest_ynab_accounts
+    ynab_accounts_match = True
+
+    for key in existing_ynab_accounts:
+        if key in latest_ynab_accounts:
+            if not shallow_compare_dicts(existing_ynab_accounts[key], latest_ynab_accounts[key]):
+                ynab_accounts_match = False
+                break
+        else:
+            ynab_accounts_match = False
+            break
+    return (akahu_accounts_match, actual_accounts_match, ynab_accounts_match)
 
 # Initialize and use the Actual class directly
 def main():
     logging.info("Starting Akahu API integration script.")
 
     try:
-        # Initialize Actual API with all necessary details
-        with Actual(
+        latest_actual_accounts = {}
+        latest_ynab_accounts = {}
+
+        if SYNC_TO_AB:
+            with Actual(
                 base_url=ENVs['ACTUAL_SERVER_URL'],
                 password=ENVs['ACTUAL_PASSWORD'],
                 file=ENVs['ACTUAL_SYNC_ID'],
                 encryption_password=ENVs['ACTUAL_ENCRYPTION_KEY']
-        ) as actual:
-            logging.info("API initialized successfully with file set.")
+            ) as actual:
+                logging.info("Actual Budget API initialized successfully.")
+                latest_actual_accounts = fetch_actual_accounts(actual)
+                logging.info(f"Fetched {len(latest_actual_accounts)} Actual Budget accounts.")
 
-            # Download the budget
-            actual.download_budget()
-            logging.info("Budget downloaded successfully.")
+        else:
+            logging.info("Not syncing to Actual Budget")
 
-            # Step 0: Load existing mapping and validate
-            existing_akahu_accounts, existing_actual_accounts, existing_ynab_accounts, existing_mapping = load_existing_mapping()
-
-            # Step 1: Fetch Akahu accounts
-            latest_akahu_accounts = fetch_akahu_accounts()
-
-            # Step 2: Fetch Actual Budget accounts using the API instance
-            latest_actual_accounts = get_accounts(actual.session)
-            open_actual_accounts = [
-                {
-                    "id": acc.id,
-                    "name": acc.name,
-                } for acc in latest_actual_accounts if not acc.closed
-            ]
-            logging.info(f"Fetched {len(open_actual_accounts)} open Actual accounts retrieved.")
-
-            # Step 3: Fetch YNAB accounts
+        if SYNC_TO_YNAB:
             latest_ynab_accounts = fetch_ynab_accounts()
             logging.info(f"Fetched {len(latest_ynab_accounts)} YNAB accounts.")
+        else:
+            logging.info("Not syncing to YNAB")
 
-            # Step 4: Validate and update existing mapping
-            existing_mapping, akahu_accounts, actual_accounts, ynab_accounts = merge_and_update_mapping(
-                existing_mapping,
-                latest_akahu_accounts,
-                open_actual_accounts,
-                latest_ynab_accounts,
-                existing_akahu_accounts,
-                existing_actual_accounts,
-                existing_ynab_accounts
-            )
+        # Step 0: Load existing mapping and validate
+        existing_akahu_accounts, existing_actual_accounts, existing_ynab_accounts, existing_mapping = load_existing_mapping()
 
-            new_mapping = existing_mapping.copy()
+        # Step 1: Fetch Akahu accounts (now returns dictionary)
+        latest_akahu_accounts = fetch_akahu_accounts()
 
-            # Step 5: Match Akahu accounts to YNAB accounts interactively
-            new_mapping = match_accounts(new_mapping, akahu_accounts, ynab_accounts, "ynab", use_openai=True)
+        # Step 4: Validate and update existing mapping
+        existing_mapping, akahu_accounts, actual_accounts, ynab_accounts = merge_and_update_mapping(
+            existing_mapping,
+            latest_akahu_accounts,
+            latest_actual_accounts,
+            latest_ynab_accounts,
+            existing_akahu_accounts,
+            existing_actual_accounts,
+            existing_ynab_accounts
+        )
 
-            # Step 6: Match Akahu accounts to Actual accounts interactively
-            new_mapping = match_accounts(new_mapping, akahu_accounts, actual_accounts, "actual", use_openai=True)
+        akahu_accounts = dict(sorted(
+            akahu_accounts.items(),
+            key=lambda x: x[1]['name'].lower()
+        ))
 
+        new_mapping = existing_mapping.copy()
 
-            # Step 7: Output proposed mapping and save
-            save_mapping(new_mapping, akahu_accounts, actual_accounts, ynab_accounts)
+        # Compare existing_akahu_accounts and latest_akahu_accounts
+        (akahu_accounts_match, actual_accounts_match, ynab_accounts_match) = check_for_changes(existing_akahu_accounts, latest_akahu_accounts, existing_actual_accounts, latest_actual_accounts, existing_ynab_accounts, latest_ynab_accounts)
+        # Check if all comparisons match, then exit if true
+        if akahu_accounts_match and actual_accounts_match and ynab_accounts_match:
+            logging.info("No changes detected in Akahu, Actual, or YNAB accounts. Skipping match")
+        else:
+            # Step 6: Match Akahu accounts to YNAB accounts interactively
+            if SYNC_TO_YNAB:
+                new_mapping = match_accounts(new_mapping, akahu_accounts, ynab_accounts, "ynab", use_openai=True)
+
+            # Step 5: Match Akahu accounts to Actual accounts interactively
+            if SYNC_TO_AB:
+                new_mapping = match_accounts(new_mapping, akahu_accounts, actual_accounts, "actual", use_openai=True)
+
+        # Step 7: Output proposed mapping and save
+        data_to_save = {
+            "akahu_accounts": akahu_accounts,
+            "actual_accounts": actual_accounts,
+            "ynab_accounts": ynab_accounts,
+            "mapping": new_mapping
+        }
+
+        data_without_seq = remove_seq(data_to_save)
+        save_mapping(data_without_seq)
 
     except Exception as e:
         logging.exception("An unexpected error occurred during script execution.")
+
 
 if __name__ == "__main__":
     main()
