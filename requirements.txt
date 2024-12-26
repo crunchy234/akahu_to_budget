@@ -1,0 +1,8 @@
+actualpy
+python-dotenv
+requests
+openai
+fuzzywuzzy
+pandas
+flask
+cryptography
