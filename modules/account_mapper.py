@@ -220,7 +220,11 @@ def match_accounts(akahu_to_account_mapping, akahu_accounts, target_accounts, ac
         suggested_index = get_openai_match_suggestion(akahu_account, target_accounts_list, akahu_to_account_mapping, target_account_key) if use_openai else get_fuzzy_match_suggestion(akahu_account, target_accounts_list, akahu_to_account_mapping, target_account_key)
 
         print(f"\nAkahu Account: {akahu_name} (Connection: {akahu_account['connection']})")
+        if f"{account_type}_do_not_map" in akahu_to_account_mapping.get(akahu_id, {}):
+            print(f"Previously marked as DO NOT MAP for {account_type}")
         print(f"Here is a list of {account_type} accounts:")
+        print("(Press Enter to skip for now)")  # Separate skip option  # User-friendly version  # Add this explicit option
+        print("0. Mark this account as DO NOT MAP (will not ask again)")  # Explicit do-not-map option
 
         for target_account in target_accounts_list:
             account_id = target_account['id']
@@ -249,6 +253,16 @@ def match_accounts(akahu_to_account_mapping, akahu_accounts, target_accounts, ac
         if validated_index is None:
             if user_input != "":
                 print("Invalid input.")
+            continue
+        elif validated_index == 0:
+            # Mark as deliberately unmapped
+            akahu_to_account_mapping.setdefault(akahu_id, {}).update({
+                f"{account_type}_do_not_map": True,
+                "akahu_id": akahu_id,
+                "akahu_name": akahu_name,
+                f"{account_type}_matched_date": datetime.now().isoformat(),
+            })
+            print(f"Marked '{akahu_name}' as DO NOT MAP for {account_type}.")
             continue
         else:
             selected_account = seq_to_acct(validated_index, target_accounts_list)
