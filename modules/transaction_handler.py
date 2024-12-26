@@ -73,22 +73,23 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
         cleared = True
 
         try:
-            reconciled_transaction = reconcile_transaction(
-                actual.session(),
-                date=datetime.datetime.strptime(transaction_date, "%Y-%m-%d").date(),
-                account=actual_account_id,
-                payee=payee_name,
-                notes=notes,
-                amount=amount,
-                imported_id=imported_id,
-                cleared=cleared,
-                imported_payee=payee_name,
-                already_matched=imported_transactions
-            )
+            with actual.session() as session:
+                reconciled_transaction = reconcile_transaction(
+                    session,
+                    date=datetime.datetime.strptime(transaction_date, "%Y-%m-%d").date(),
+                    account=actual_account_id,
+                    payee=payee_name,
+                    notes=notes,
+                    amount=amount,
+                    imported_id=imported_id,
+                    cleared=cleared,
+                    imported_payee=payee_name,
+                    already_matched=imported_transactions
+                )
 
-            if reconciled_transaction.changed():
-                imported_transactions.append(reconciled_transaction)
-            logging.info(f"Successfully reconciled transaction: {imported_id}")
+                if reconciled_transaction.changed():
+                    imported_transactions.append(reconciled_transaction)
+                logging.info(f"Successfully reconciled transaction: {imported_id}")
 
         except Exception as e:
             logging.error(f"Failed to reconcile transaction {imported_id} into Actual: {str(e)}")
@@ -112,18 +113,19 @@ def handle_tracking_account_actual(mapping_entry, actual):
             payee_name = "Balance Adjustment"
             notes = f"Adjusted from {actual_balance / 100} to {akahu_balance / 100} to reconcile tracking account."
 
-            create_transaction(
-                actual.session(),
-                date=transaction_date,
-                account=actual_account_id,
-                payee=payee_name,
-                notes=notes,
-                amount=adjustment_amount,
-                imported_id=f"adjustment_{datetime.datetime.utcnow().isoformat()}",
-                cleared=True,
-                imported_payee=payee_name
-            )
-            logging.info(f"Created balance adjustment transaction for {akahu_account_name}")
+            with actual.session() as session:
+                create_transaction(
+                    session,
+                    date=transaction_date,
+                    account=actual_account_id,
+                    payee=payee_name,
+                    notes=notes,
+                    amount=adjustment_amount,
+                    imported_id=f"adjustment_{datetime.datetime.utcnow().isoformat()}",
+                    cleared=True,
+                    imported_payee=payee_name
+                )
+                logging.info(f"Created balance adjustment transaction for {akahu_account_name}")
         else:
             logging.info(f"No balance adjustment needed for {akahu_account_name}")
 

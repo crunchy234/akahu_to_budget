@@ -68,7 +68,7 @@ akahu_headers = {
     "X-Akahu-ID": ENVs['AKAHU_APP_TOKEN']
 }
 
-def sync_to_ab(actual, mapping_list):
+def sync_to_ab(actual, mapping_list, akahu_accounts, actual_accounts, ynab_accounts):
     """Sync transactions from Akahu to Actual Budget."""
     for akahu_account_id, mapping_entry in mapping_list.items():
         actual_account_id = mapping_entry.get('actual_account_id')
@@ -85,21 +85,28 @@ def sync_to_ab(actual, mapping_list):
         if account_type == 'Tracking':
             handle_tracking_account_actual(mapping_entry, actual)
         elif account_type == 'On Budget':
+            if mapping_entry.get('actual_do_not_map'):
+                logging.warning(
+                    f"Skipping sync to Actual Budget for Akahu account {akahu_account_id}: account is configured to not be mapped."
+                )
+                continue
+
+            if not (mapping_entry.get('actual_budget_id') and mapping_entry.get('actual_account_id')):
+                logging.warning(
+                    f"Skipping sync to Actual Budget for Akahu account {akahu_account_id}: Missing Actual Budget IDs."
+                )
+                continue
+
             last_reconciled_at = mapping_entry.get('actual_synced_datetime', '2024-01-01T00:00:00Z')
             akahu_df = get_all_akahu(
-                akahu_account_id, 
-                akahu_endpoint, 
-                akahu_headers, 
+                akahu_account_id,
+                akahu_endpoint,
+                akahu_headers,
                 last_reconciled_at
             )
 
             if akahu_df is not None and not akahu_df.empty:
-                if mapping_entry.get('actual_budget_id') and mapping_entry.get('actual_account_id'):
-                    load_transactions_into_actual(akahu_df, mapping_entry, actual)
-                else:
-                    logging.warning(
-                        f"Skipping sync to Actual Budget for Akahu account {akahu_account_id}: Missing Actual Budget IDs."
-                    )
+                load_transactions_into_actual(akahu_df, mapping_entry, actual)
         else:
             logging.error(f"Unknown account type for Akahu account: {akahu_account_id}")
 
@@ -113,41 +120,53 @@ def sync_to_ynab(mapping_list):
         logging.info(f"Processing Akahu account: {akahu_account_id} linked to YNAB account: {ynab_account_id}")
 
         if account_type == 'On Budget':
+            if mapping_entry.get('ynab_do_not_map'):
+                logging.warning(
+                    f"Skipping sync to YNAB for Akahu account {akahu_account_id}: account is configured to not be mapped."
+                )
+                continue
+
+            if not (mapping_entry.get('ynab_budget_id') and mapping_entry.get('ynab_account_id')):
+                logging.warning(
+                    f"Skipping sync to YNAB for Akahu account {akahu_account_id}: Missing YNAB IDs."
+                )
+                continue
+
             last_reconciled_at = mapping_entry.get('ynab_synced_datetime', '2024-01-01T00:00:00Z')
             akahu_df = get_all_akahu(
-                akahu_account_id, 
-                akahu_endpoint, 
-                akahu_headers, 
+                akahu_account_id,
+                akahu_endpoint,
+                akahu_headers,
                 last_reconciled_at
             )
 
             if akahu_df is not None and not akahu_df.empty:
-                if mapping_entry.get('ynab_budget_id') and mapping_entry.get('ynab_account_id'):
-                    # Clean and prepare transactions for YNAB
-                    cleaned_txn = clean_txn_for_ynab(akahu_df, ynab_account_id)
-                    
-                    # Load transactions into YNAB
-                    load_transactions_into_ynab(
-                        cleaned_txn, 
-                        mapping_entry['ynab_budget_id'], 
-                        mapping_entry['ynab_account_id'],
-                        ynab_endpoint,
-                        ynab_headers
-                    )
-                else:
-                    logging.warning(
-                        f"Skipping sync to YNAB for Akahu account {akahu_account_id}: Missing YNAB IDs."
-                    )
+                # Clean and prepare transactions for YNAB
+                cleaned_txn = clean_txn_for_ynab(akahu_df, ynab_account_id)
+                
+                # Load transactions into YNAB
+                load_transactions_into_ynab(
+                    cleaned_txn,
+                    mapping_entry['ynab_budget_id'],
+                    mapping_entry['ynab_account_id'],
+                    ynab_endpoint,
+                    ynab_headers
+                )
         else:
             logging.error(f"Unknown account type for Akahu account: {akahu_account_id}")
 
-    save_mapping()
+    save_mapping({
+        'akahu_accounts': akahu_accounts,
+        'actual_accounts': actual_accounts,
+        'ynab_accounts': ynab_accounts,
+        'mapping': mapping_list
+    })
 
 def main():
     """Main entry point for the sync script."""
     try:
         # Load the existing mapping
-        _, _, _, mapping_list = load_existing_mapping()
+        akahu_accounts, actual_accounts, ynab_accounts, mapping_list = load_existing_mapping()
 
         # Initialize Actual if syncing to AB
         if SYNC_TO_AB:
@@ -169,14 +188,14 @@ def main():
                 start_webhook_server(app, development_mode)
 
                 # Perform initial sync
-                sync_to_ab(actual, mapping_list)
+                sync_to_ab(actual, mapping_list, akahu_accounts, actual_accounts, ynab_accounts)
         
         # Sync to YNAB if enabled
         if SYNC_TO_YNAB:
-            sync_to_ynab(mapping_list)
+            sync_to_ynab(mapping_list, akahu_accounts, actual_accounts, ynab_accounts)
 
     except Exception as e:
         logging.exception("An unexpected error occurred during script execution.")
 
 if __name__ == "__main__":
-    main()i
+    main()

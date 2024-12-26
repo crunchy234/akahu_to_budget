@@ -65,11 +65,6 @@ for key, value in ENVs.items():
 def main():
     logging.info("Starting Akahu API integration script.")
 
-    openai_api_key = os.getenv('OPENAI_API_KEY')
-    if not openai_api_key:
-        logging.error("OPENAI_API_KEY is missing.")
-        raise ValueError("OPENAI_API_KEY environment variable is not set.")
-
     try:
         latest_actual_accounts = {}
         latest_ynab_accounts = {}
