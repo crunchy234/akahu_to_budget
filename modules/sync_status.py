@@ -31,7 +31,8 @@ YNAB:
 - New transactions created: {ynab_count}
 - Previous sync time: {ynab_last_sync}
 
-{f"Errors encountered:\n{chr(10).join(errors)}" if errors else ""}"""
+{f"Errors encountered:
+ {chr(10).join(errors)}" if errors else ""}"""
 
     # Generate response
     if errors:
