@@ -9,6 +9,7 @@ import logging
 import signal
 import sys
 from actual import Actual
+import requests
 
 # Import from our modules package
 from modules.sync_handler import sync_to_ab, sync_to_ynab
@@ -79,9 +80,8 @@ def main():
 
             development_mode = os.getenv('FLASK_ENV') == 'development'
             app.run(host="0.0.0.0", port=5000, debug=development_mode)
-    except Exception as e:
-        logging.exception(f"An unexpected error occurred: {str(e)}")
-        sys.exit(1)
+    except requests.exceptions.JSONDecodeError:
+        raise RuntimeError("Failed to connect to Actual server - is it running?")
 
 if __name__ == "__main__":
     main()
