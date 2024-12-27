@@ -41,10 +41,6 @@ def get_actual_client():
             logging.info(f"Attempting to connect to Actual server at {ENVs['ACTUAL_SERVER_URL']}")
             
             # Test the connection first
-            test_response = requests.get(ENVs['ACTUAL_SERVER_URL'])
-            logging.info(f"Server response status: {test_response.status_code}")
-            logging.info(f"Server response headers: {dict(test_response.headers)}")
-            logging.info(f"Server response content: {test_response.text[:500]}")
             
             with Actual(
                 base_url=ENVs['ACTUAL_SERVER_URL'],
@@ -52,6 +48,7 @@ def get_actual_client():
                 file=ENVs['ACTUAL_SYNC_ID'],
                 encryption_password=ENVs['ACTUAL_ENCRYPTION_KEY']
             ) as client:
+                logging.info(f"Connected to AB: {client}")
                 yield client
         except requests.exceptions.RequestException as e:
             logging.error(f"Failed to connect to Actual server: {str(e)}")
@@ -62,7 +59,7 @@ def get_actual_client():
             raise RuntimeError(f"Failed to connect to Actual server: {str(e)}") from None
     else:
         yield None
-        
+
 def signal_handler(sig, frame):
     logging.info("Received signal to terminate. Shutting down gracefully...")
     # Perform any cleanup here
@@ -76,8 +73,6 @@ def main():
 
     # Load the existing mapping
     _, _, _, mapping_list = load_existing_mapping()
-    if RUN_SYNC_TO_AB:
-        logging.info(f"Attempting to connect to Actual server at {ENVs['ACTUAL_SERVER_URL']}")
     with get_actual_client() as actual:
         # Initialize Actual if syncing to AB
         # Create Flask app with Actual client
