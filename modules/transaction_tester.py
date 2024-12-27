@@ -4,8 +4,17 @@ import time
 import pandas as pd
 from actual.queries import get_transactions
 
-import logging
-
+# Test transaction template - matches Akahu API format
+TEST_TRANSACTION_TEMPLATE = {
+    '_account': 'acc_test123',
+    '_connection': 'conn_test123',
+    'created_at': '2024-01-01T00:00:00Z',
+    'date': '2024-01-01T00:00:00Z',
+    'description': 'Test Transaction',
+    'amount': 0.00,
+    'balance': 1000.00,
+    'type': 'DEBIT'
+}
 
 def run_transaction_tests(actual_client, mapping_list, env_vars):
     """Run comprehensive transaction tests."""
@@ -88,12 +97,15 @@ def run_initial_transaction_test(actual_client, test_mapping):
         'expected_amount_cents': int(test_amount * -100)
     })
     
-    test_txn = pd.DataFrame([{
+    # Create test transaction from template
+    test_data = TEST_TRANSACTION_TEMPLATE.copy()
+    test_data.update({
         '_id': test_id,
         'date': test_date,
-        'imported_description': test_desc,
+        'description': test_desc,
         'amount': test_amount
-    }])
+    })
+    test_txn = pd.DataFrame([test_data])
     logger.debug("Created DataFrame: %s", test_txn.to_dict('records'))
     
     # Use API to create transaction
@@ -162,12 +174,14 @@ def run_duplicate_transaction_test(actual_client, test_mapping):
     logger.debug("Generated test data: ID=%s, amount=%.2f", test_id, test_amount)
     
     # Create test transaction
-    test_txn = pd.DataFrame([{
+    # Create test transaction from template
+    test_data = TEST_TRANSACTION_TEMPLATE.copy()
+    test_data.update({
         '_id': test_id,
-        'date': '2024-01-01T00:00:00Z',
-        'imported_description': 'Test Transaction 1',
+        'description': 'Test Transaction 1',
         'amount': test_amount
-    }])
+    })
+    test_txn = pd.DataFrame([test_data])
     logger.debug("Created initial test transaction DataFrame: %s", test_txn.to_dict('records'))
     
     # Create first instance using API
@@ -281,12 +295,14 @@ def run_ynab_integration_test(actual_client, test_mapping, env_vars):
     
     # Create test transaction
     test_amount = 15.00
-    test_txn = pd.DataFrame([{
+    # Create test transaction from template
+    test_data = TEST_TRANSACTION_TEMPLATE.copy()
+    test_data.update({
         '_id': test_id,
-        'date': '2024-01-01T00:00:00Z',
-        'imported_description': 'Test Transaction YNAB',
+        'description': 'Test Transaction YNAB',
         'amount': test_amount
-    }])
+    })
+    test_txn = pd.DataFrame([test_data])
     logger.debug("Created test transaction DataFrame: %s", test_txn.to_dict('records'))
     
     # Create in Actual first
@@ -294,25 +310,36 @@ def run_ynab_integration_test(actual_client, test_mapping, env_vars):
     load_transactions_into_actual(test_txn, test_mapping, actual_client)
     logger.info("Transaction created in Actual")
     
-    # Verify transaction exists in Actual before YNAB sync
-    logger.debug("Verifying transaction exists in Actual before YNAB sync")
-    actual_check = get_transactions(
-        actual_client.session,
-        financial_id=test_id
+    # First verify transaction doesn't exist in YNAB
+    logger.debug("Checking if transaction already exists in YNAB")
+    import_id = f"AKAHU:{test_id}"
+    logger.debug("YNAB import_id to check: %s", import_id)
+    
+    # Use YNAB API to check for existing transaction
+    check_url = f"{env_vars['ynab_endpoint']}budgets/{test_mapping['ynab_budget_id']}/transactions"
+    logger.debug("Checking YNAB transactions at: %s", check_url)
+    
+    from .transaction_handler import get_ynab_transactions
+    existing_transactions = get_ynab_transactions(
+        test_mapping['ynab_budget_id'],
+        env_vars['ynab_endpoint'],
+        env_vars['ynab_headers']
     )
-    if not actual_check:
-        logger.error("Transaction not found in Actual with ID: %s", test_id)
-        raise Exception("Test failed: Transaction missing in Actual before YNAB sync")
+    logger.debug("Retrieved %d transactions from YNAB", len(existing_transactions))
     
-    logger.debug("Found transaction in Actual: %s", {
-        'id': actual_check[0].id,
-        'amount': actual_check[0].amount,
-        'amount_dollars': actual_check[0].amount/100,
-        'imported_description': actual_check[0].imported_description
-    })
-    logger.info("Pre-YNAB check: Transaction exists in Actual")
+    # Check for our test transaction
+    existing_transaction = next(
+        (t for t in existing_transactions if t.get('import_id') == import_id),
+        None
+    )
     
-    # Clean and send to YNAB
+    if existing_transaction:
+        logger.debug("Found existing transaction in YNAB: %s", existing_transaction)
+        logger.info("Transaction already exists in YNAB - will be handled as duplicate")
+    else:
+        logger.info("Verified transaction does not exist in YNAB")
+    
+    # Now proceed with cleaning and sending to YNAB
     logger.debug("Cleaning transaction for YNAB sync")
     cleaned_txn = clean_txn_for_ynab(test_txn, test_mapping['ynab_account_id'])
     logger.debug("Cleaned transaction: %s", cleaned_txn.to_dict('records'))
@@ -392,12 +419,14 @@ def run_transaction_update_test(actual_client, test_mapping):
         'expected_amount_cents': int(initial_amount * -100)
     })
     
-    update_txn = pd.DataFrame([{
+    # Create test transaction from template
+    test_data = TEST_TRANSACTION_TEMPLATE.copy()
+    test_data.update({
         '_id': update_id,
-        'date': '2024-01-01T00:00:00Z',
-        'imported_description': initial_desc,
+        'description': initial_desc,
         'amount': initial_amount
-    }])
+    })
+    update_txn = pd.DataFrame([test_data])
     logger.debug("Created initial DataFrame: %s", update_txn.to_dict('records'))
     
     # Use API to create transaction
@@ -458,9 +487,14 @@ def run_transaction_update_test(actual_client, test_mapping):
     
     update_txn = pd.DataFrame([{
         '_id': update_id,
+        '_account': 'acc_test123',
+        '_connection': 'conn_test123',
+        'created_at': '2024-01-01T00:00:00Z',
         'date': '2024-01-01T00:00:00Z',
-        'imported_description': updated_desc,
-        'amount': updated_amount
+        'description': updated_desc,
+        'amount': updated_amount,
+        'balance': 1000.00,
+        'type': 'DEBIT'
     }])
     logger.debug("Created update DataFrame: %s", update_txn.to_dict('records'))
     

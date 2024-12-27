@@ -165,7 +165,7 @@ def convert_to_nzt(date_str):
 def clean_txn_for_ynab(akahu_txn, ynab_account_id):
     """Clean and transform Akahu transactions to prepare them for YNAB import."""
     akahu_txn['payee_name'] = akahu_txn.apply(get_payee_name, axis=1)
-    akahu_txn['memo'] = akahu_txn['description']
+    akahu_txn['memo'] = akahu_txn['imported_description']
     akahu_txn_useful = akahu_txn[['_id', 'date', 'amount', 'memo', 'payee_name']].rename(columns={'_id': 'id'}, errors='ignore')
     akahu_txn_useful['amount'] = akahu_txn_useful['amount'].apply(lambda x: str(int(x * 1000)))
     akahu_txn_useful['cleared'] = 'cleared'
@@ -175,6 +175,19 @@ def clean_txn_for_ynab(akahu_txn, ynab_account_id):
     akahu_txn_useful['account_id'] = ynab_account_id
 
     return akahu_txn_useful
+
+def get_ynab_transactions(ynab_budget_id, ynab_endpoint, ynab_headers):
+    """Fetch all transactions from YNAB for a given budget."""
+    uri = f"{ynab_endpoint}budgets/{ynab_budget_id}/transactions"
+    try:
+        response = requests.get(uri, headers=ynab_headers)
+        response.raise_for_status()
+        return response.json().get('data', {}).get('transactions', [])
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error fetching transactions from YNAB: {e}")
+        if response is not None:
+            logging.error(f"API response content: {response.text}")
+        return []
 
 def load_transactions_into_ynab(akahu_txn, ynab_budget_id, ynab_account_id, ynab_endpoint, ynab_headers):
     """Save transactions from Akahu to YNAB."""
