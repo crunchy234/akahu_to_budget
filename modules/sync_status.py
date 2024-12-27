@@ -1,5 +1,6 @@
 """Module for generating sync status reports."""
 from datetime import datetime
+from textwrap import dedent
 from flask import jsonify
 
 def generate_sync_report(mapping_list, actual_count, ynab_count, errors):
@@ -19,20 +20,23 @@ def generate_sync_report(mapping_list, actual_count, ynab_count, errors):
                          default='Never')
 
     # Generate summary text
-    summary = f"""Sync completed at {datetime.now().isoformat()}
+    errors_multiline = "\n".join(errors) if errors else "No errors"
 
-Actual Budget:
-- Accounts configured: {actual_accounts}
-- New transactions created: {actual_count}
-- Previous sync time: {actual_last_sync}
 
-YNAB:
-- Accounts configured: {ynab_accounts}
-- New transactions created: {ynab_count}
-- Previous sync time: {ynab_last_sync}
 
-{f"Errors encountered:
- {chr(10).join(errors)}" if errors else ""}"""
+    summary = dedent(f"""Sync completed at {datetime.now().isoformat()}
+
+        Actual Budget:
+        - Accounts configured: {actual_accounts}
+        - New transactions created: {actual_count}
+        - Previous sync time: {actual_last_sync}
+
+        YNAB:
+        - Accounts configured: {ynab_accounts}
+        - New transactions created: {ynab_count}
+        - Previous sync time: {ynab_last_sync}
+
+        "Errors encountered: {errors_multiline}""")
 
     # Generate response
     if errors:
