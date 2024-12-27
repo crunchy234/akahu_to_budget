@@ -8,7 +8,12 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.exceptions import InvalidSignature
 from threading import Thread
 
-from .transaction_handler import load_transactions_into_actual, get_all_akahu
+from .transaction_handler import (
+    load_transactions_into_actual,
+    get_all_akahu,
+    clean_txn_for_ynab,
+    load_transactions_into_ynab
+)
 
 def verify_signature(public_key: str, signature: str, request_body: bytes) -> None:
     """Verify that the request body has been signed by Akahu."""
@@ -28,6 +33,17 @@ def verify_signature(public_key: str, signature: str, request_body: bytes) -> No
 def create_flask_app(actual_client, mapping_list, env_vars):
     """Create and configure Flask application for webhook handling."""
     app = Flask(__name__)
+
+    @app.route('/test', methods=['GET'])
+    def test_transactions():
+        """Test endpoint to validate transaction handling."""
+        try:
+            from .transaction_tester import run_transaction_tests
+            result = run_transaction_tests(actual_client, mapping_list, env_vars)
+            return jsonify(result), 200
+        except Exception as e:
+            logging.error(f"\n=== Test Failed ===\nError in test endpoint: {str(e)}")
+            return jsonify({"error": str(e)}), 500
 
     @app.route('/')
     def root():

@@ -49,6 +49,7 @@ required_envs = [
     'AKAHU_PUBLIC_KEY',
     'OPENAI_API_KEY',
     "YNAB_BEARER_TOKEN",
+    "YNAB_BUDGET_ID",
 ]
 
 # Load environment variables into a dictionary for validation
@@ -90,6 +91,14 @@ def main():
 
         # Step 0: Load existing mapping and validate
         existing_akahu_accounts, existing_actual_accounts, existing_ynab_accounts, existing_mapping = load_existing_mapping()
+
+        # Retrofit budget IDs to existing mappings to avoid having to manually remap accounts
+        # This is a one-time update for existing mappings that don't have these fields
+        for mapping in existing_mapping.values():
+            if 'ynab_account_id' in mapping and 'ynab_budget_id' not in mapping:
+                mapping['ynab_budget_id'] = os.getenv('YNAB_BUDGET_ID')
+            if 'actual_account_id' in mapping and 'actual_budget_id' not in mapping:
+                mapping['actual_budget_id'] = os.getenv('ACTUAL_SYNC_ID')
 
         # Step 1: Fetch Akahu accounts
         latest_akahu_accounts = fetch_akahu_accounts()

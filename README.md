@@ -7,7 +7,7 @@ We support both Actual Budget and YNAB.  You can sync to both or to just one.
 
 1. Create an Akahu account and an Akahu app: [https://my.akahu.nz/login](https://my.akahu.nz/login)
 2. Set up an OpenAI account and get an API key: [https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys)
-3. Set up an Actual Budget Server and get the server URL, password, encryption key, and sync ID: [https://actualbudget.com/](https://actualbudget.org/).  I used PikaPods
+3. Set up an Actual Budget Server and get the server URL, password, encryption key, and sync ID: [https://actualbudget.org/](https://actualbudget.org/).  I used PikaPods
 4. And/OR in YNAB get a bearer token and the budget ID: [https://api.youneedabudget.com/](https://api.youneedabudget.com/)
 5. Check out this repository
 6. Create a virtual environment and run `pip install -r requirements.txt`
@@ -54,3 +54,7 @@ It's implemented as a Flask app so you can run it locally and it will keep runni
 There is minimal security, mostly because the webhooks don't take parameters so the worst someone can do is sync your budget prematurely.
 
 You can run the sync by going to http://localhost:5000/sync
+
+# Running Tests
+
+There are some tests to validate the API is still working.  You can probably ignore them.

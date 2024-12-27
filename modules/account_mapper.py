@@ -148,7 +148,7 @@ def get_openai_match_suggestion(akahu_account, target_accounts, akahu_to_account
     try:
         client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         response = client.chat.completions.create(
-            model="gpt-4-1106-preview",
+            model="gpt-4o-2024-11-20",
             messages=[
                 {"role": "system", "content": "Select the best match by responding with a number, including 0 if no match is suitable. Respond strictly with a number—no explanations or commentary."},
                 {"role": "user", "content": prompt}
@@ -213,9 +213,10 @@ def match_accounts(akahu_to_account_mapping, akahu_accounts, target_accounts, ac
     for akahu_id, akahu_account in sorted(akahu_accounts.items(), key=lambda x: x[1]['name'].lower()):
         akahu_name = akahu_account['name']
 
-        if akahu_id in akahu_to_account_mapping and target_account_key in akahu_to_account_mapping[akahu_id]:
-            print(f"Akahu account '{akahu_name}' is already mapped to {account_type.capitalize()} account. Skipping.")
-            continue
+        if akahu_id in akahu_to_account_mapping:
+            if target_account_key in akahu_to_account_mapping[akahu_id] or f"{account_type}_do_not_map" in akahu_to_account_mapping[akahu_id]:
+                print(f"Akahu account '{akahu_name}' is already mapped or marked as DO NOT MAP for {account_type}. Skipping.")
+                continue
 
         suggested_index = get_openai_match_suggestion(akahu_account, target_accounts_list, akahu_to_account_mapping, target_account_key) if use_openai else get_fuzzy_match_suggestion(akahu_account, target_accounts_list, akahu_to_account_mapping, target_account_key)
 
@@ -274,6 +275,8 @@ def match_accounts(akahu_to_account_mapping, akahu_accounts, target_accounts, ac
                 "akahu_id": akahu_id,
                 "akahu_name": akahu_name,
                 f"{account_type}_matched_date": datetime.now().isoformat(),
+                "actual_budget_id": os.getenv('ACTUAL_SYNC_ID') if account_type == 'actual' else None,
+                "ynab_budget_id": os.getenv('YNAB_BUDGET_ID') if account_type == 'ynab' else None,
             })
             print(f"Mapped Akahu account '{akahu_name}' to target account '{selected_name}'.")
 
@@ -312,33 +315,30 @@ def check_for_changes(existing_akahu_accounts, latest_akahu_accounts, existing_a
     ynab_accounts_match = True
 
     # Check Akahu accounts
-    for key in existing_akahu_accounts:
-        if key in latest_akahu_accounts:
+    if set(existing_akahu_accounts.keys()) != set(latest_akahu_accounts.keys()):
+        akahu_accounts_match = False
+    else:
+        for key in existing_akahu_accounts:
             if not shallow_compare_dicts(existing_akahu_accounts[key], latest_akahu_accounts[key]):
                 akahu_accounts_match = False
                 break
-        else:
-            akahu_accounts_match = False
-            break
 
     # Check Actual accounts
-    for key in existing_actual_accounts:
-        if key in latest_actual_accounts:
+    if set(existing_actual_accounts.keys()) != set(latest_actual_accounts.keys()):
+        actual_accounts_match = False
+    else:
+        for key in existing_actual_accounts:
             if not shallow_compare_dicts(existing_actual_accounts[key], latest_actual_accounts[key]):
                 actual_accounts_match = False
                 break
-        else:
-            actual_accounts_match = False
-            break
 
     # Check YNAB accounts
-    for key in existing_ynab_accounts:
-        if key in latest_ynab_accounts:
+    if set(existing_ynab_accounts.keys()) != set(latest_ynab_accounts.keys()):
+        ynab_accounts_match = False
+    else:
+        for key in existing_ynab_accounts:
             if not shallow_compare_dicts(existing_ynab_accounts[key], latest_ynab_accounts[key]):
                 ynab_accounts_match = False
                 break
-        else:
-            ynab_accounts_match = False
-            break
 
     return (akahu_accounts_match, actual_accounts_match, ynab_accounts_match)
