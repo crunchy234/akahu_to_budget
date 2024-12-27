@@ -6,7 +6,7 @@ We support both Actual Budget and YNAB.  You can sync to both or to just one.
 # Setup
 
 1. Create an Akahu account and an Akahu app: [https://my.akahu.nz/login](https://my.akahu.nz/login)
-2. Set up an OpenAI account and get an API key: [https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys)
+2. Set up an OpenAI account and get an API key: [https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys) (OPTIONAL)
 3. Set up an Actual Budget Server and get the server URL, password, encryption key, and sync ID: [https://actualbudget.org/](https://actualbudget.org/).  I used PikaPods
 4. And/OR in YNAB get a bearer token and the budget ID: [https://api.youneedabudget.com/](https://api.youneedabudget.com/)
 5. Check out this repository
@@ -51,6 +51,7 @@ Now run `akahu_to_budget.py`
 This is the workhorse.  It connects to Akahu, gets the transactions, and then syncs them to Actual Budget and/or YNAB.
 
 It's implemented as a Flask app so you can run it locally and it will keep running.  
+The first sync is triggered automatically on startup.  For subsequent syncs you should use the web interface.
 There is minimal security, mostly because the webhooks don't take parameters so the worst someone can do is sync your budget prematurely.
 
 You can run the sync by going to http://localhost:5000/sync
@@ -58,3 +59,8 @@ You can run the sync by going to http://localhost:5000/sync
 # Running Tests
 
 There are some tests to validate the API is still working.  You can probably ignore them.
+
+# OpenAI
+
+I set up the OpenAI key for mapping accounts more out of self-amusement.  I have also toyed with the idea of using it to clean payees, assign transactions to categories, etc.
+For now it's not really doing anything.

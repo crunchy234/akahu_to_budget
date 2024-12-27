@@ -6,3 +6,4 @@ fuzzywuzzy
 pandas
 flask
 cryptography
+python-Levenshtein
