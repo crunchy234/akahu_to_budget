@@ -1,6 +1,6 @@
 from datetime import datetime
 import logging
-from modules.account_fetcher import get_akahu_balance
+from modules.account_fetcher import get_akahu_balance, get_ynab_balance
 from modules.account_mapper import load_existing_mapping, save_mapping
 from modules.transaction_handler import clean_txn_for_ynab, create_adjustment_txn_ynab, get_all_akahu, handle_tracking_account_actual, load_transactions_into_actual, load_transactions_into_ynab
 from modules.config import RUN_SYNC_TO_AB, RUN_SYNC_TO_YNAB, YNAB_ENDPOINT, YNAB_HEADERS, AKAHU_ENDPOINT, AKAHU_HEADERS
@@ -37,18 +37,21 @@ def sync_to_ynab(mapping_list):
         ynab_account_name = mapping_entry.get('ynab_account_name')
         akahu_account_name = mapping_entry.get('akahu_name')
         account_type = mapping_entry.get('account_type', 'On Budget')
-        logging.info(f"Processing Akahu account: {akahu_account_name} ({akahu_account_id}) linked to YNAB account: {ynab_account_name} ({ynab_account_id})")
+        last_reconciled_at = mapping_entry.get('ynab_synced_datetime', '2024-01-01T00:00:00Z')
         if mapping_entry.get('ynab_do_not_map'):
-            logging.warning(
+            logging.debug(
                 f"Skipping sync to YNAB for Akahu account {akahu_account_id}: account is configured to not be mapped."
             )
             continue
 
-        if not (mapping_entry.get('ynab_budget_id') and mapping_entry.get('ynab_account_id')):
+        if not (ynab_budget_id and ynab_account_id):
             logging.warning(
                 f"Skipping sync to YNAB for Akahu account {akahu_account_id}: Missing YNAB IDs."
             )
             continue
+
+        logging.info(f"Processing Akahu account: {akahu_account_name} ({akahu_account_id}) linked to YNAB account: {ynab_account_name} ({ynab_account_id})")
+        logging.info(f"Last synced: {last_reconciled_at}")
 
         if account_type == 'Tracking':
             logging.info(f"Working on tracking account: {ynab_account_name}")
@@ -78,7 +81,6 @@ def sync_to_ynab(mapping_list):
             successful_ynab_syncs.add(akahu_account_id)
 
         elif account_type == 'On Budget':
-            last_reconciled_at = mapping_entry.get('ynab_synced_datetime', '2024-01-01T00:00:00Z')
             akahu_df = get_all_akahu(
                 akahu_account_id,
                 AKAHU_ENDPOINT,
@@ -114,10 +116,10 @@ def sync_to_ab(actual, mapping_list):
         actual_account_name = mapping_entry.get('actual_account_name')
         akahu_account_name = mapping_entry.get('akahu_name')
         account_type = mapping_entry.get('account_type', 'On Budget')
-        logging.info(f"Processing Akahu account: {akahu_account_name} ({akahu_account_id}) linked to Actual account: {actual_account_name} ({actual_account_id})")
+        last_reconciled_at = mapping_entry.get('actual_synced_datetime', '2024-01-01T00:00:00Z')
 
         if mapping_entry.get('actual_do_not_map'):
-            logging.info(
+            logging.debug(
                 f"Skipping sync to Actual Budget for Akahu account {akahu_account_id}: account is configured to not be mapped."
             )
             continue
@@ -127,6 +129,9 @@ def sync_to_ab(actual, mapping_list):
                 f"Skipping sync to Actual Budget for Akahu account {akahu_account_id}: Missing Actual Budget IDs."
             )
             continue
+
+        logging.info(f"Processing Akahu account: {akahu_account_name} ({akahu_account_id}) linked to Actual account: {actual_account_name} ({actual_account_id})")
+        logging.info(f"Last synced: {last_reconciled_at}")
 
         # Update balance for mapping entry
         mapping_entry['akahu_balance'] = get_akahu_balance(
@@ -142,7 +147,6 @@ def sync_to_ab(actual, mapping_list):
             transactions_processed = True
             successful_ab_syncs.add(akahu_account_id)
         elif account_type == 'On Budget':
-            last_reconciled_at = mapping_entry.get('actual_synced_datetime', '2024-01-01T00:00:00Z')
             akahu_df = get_all_akahu(
                 akahu_account_id,
                 AKAHU_ENDPOINT,

@@ -1,12 +1,12 @@
 """Module for handling transaction processing and syncing."""
-import datetime
+from datetime import datetime, timedelta
 import decimal
 import logging
 import pandas as pd
 import requests
 from actual.queries import create_transaction, reconcile_transaction
 
-from .account_fetcher import get_akahu_balance, get_actual_balance
+from modules.account_fetcher import get_akahu_balance, get_actual_balance
 
 def get_all_akahu(akahu_account_id, akahu_endpoint, akahu_headers, last_reconciled_at=None):
     """Fetch all transactions from Akahu for a given account, supporting pagination."""
@@ -14,11 +14,17 @@ def get_all_akahu(akahu_account_id, akahu_endpoint, akahu_headers, last_reconcil
     res = None
     total_txn = 0
 
+    # We always subtract a week - getting an extra week's transactions - because sometimes they arrive late
     if last_reconciled_at:
-        query_params['start'] = last_reconciled_at
+        # Parse the string into a datetime object, handling the 'Z' for UTC
+        last_reconciled_at_dt = datetime.fromisoformat(last_reconciled_at.replace("Z", "+00:00"))
+        # Subtract one week
+        start_time = last_reconciled_at_dt - timedelta(weeks=1)
+        # Convert back to ISO format for query_params
+        query_params['start'] = start_time.isoformat().replace("+00:00", "Z")  # Ensure consistent 'Z' format
     else:
-        start_of_time = "2024-01-01T00:00:00Z"
-        query_params['start'] = start_of_time
+        # Default to the start of time
+        query_params['start'] = "2024-01-01T00:00:00Z"
 
     next_cursor = 'first time'
     while next_cursor is not None:
@@ -68,14 +74,14 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
         transaction_date = txn.get("date")
         payee_name = txn.get("description")
         notes = f"Akahu transaction: {txn.get('description')}"
-        amount = decimal.Decimal(txn.get("amount") * -1)
+        amount = decimal.Decimal(txn.get("amount"))
         imported_id = txn.get("_id")
         cleared = True
 
         try:
             # Use the imported reconcile_transaction function with the session directly
             # Parse ISO format date and extract just the date component
-            parsed_date = datetime.datetime.strptime(transaction_date.replace(".000", ""), "%Y-%m-%dT%H:%M:%SZ").date()
+            parsed_date = datetime.strptime(transaction_date.replace(".000", ""), "%Y-%m-%dT%H:%M:%SZ").date()
             logging.info(f"Attempting to reconcile transaction: date={parsed_date}, account={actual_account_id}, payee={payee_name}, amount={amount}, imported_id={imported_id}")
             try:
                 reconciled_transaction = reconcile_transaction(
@@ -108,7 +114,7 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
             logging.error(f"Failed to reconcile transaction {imported_id} into Actual: {str(e)}")
             raise
 
-    mapping_entry['actual_synced_datetime'] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    mapping_entry['actual_synced_datetime'] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 def handle_tracking_account_actual(mapping_entry, actual):
     """Handle tracking accounts by checking and adjusting balances."""
@@ -123,7 +129,7 @@ def handle_tracking_account_actual(mapping_entry, actual):
 
         if akahu_balance != actual_balance:
             adjustment_amount = decimal.Decimal(akahu_balance - actual_balance) / 100
-            transaction_date = datetime.datetime.utcnow().date()
+            transaction_date = datetime.utcnow().date()
             payee_name = "Balance Adjustment"
             notes = f"Adjusted from {actual_balance / 100} to {akahu_balance / 100} to reconcile tracking account."
 
@@ -135,7 +141,7 @@ def handle_tracking_account_actual(mapping_entry, actual):
                 payee=payee_name,
                 notes=notes,
                 amount=adjustment_amount,
-                imported_id=f"adjustment_{datetime.datetime.utcnow().isoformat()}",
+                imported_id=f"adjustment_{datetime.utcnow().isoformat()}",
                 cleared=True,
                 imported_payee=payee_name
             )
@@ -168,8 +174,8 @@ def convert_to_nzt(date_str):
             return None
         # Remove milliseconds if present before parsing
         date_str = date_str.replace(".000Z", "Z")
-        utc_time = datetime.datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ")
-        nzt_time = utc_time + datetime.timedelta(hours=13)
+        utc_time = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ")
+        nzt_time = utc_time + timedelta(hours=13)
         return nzt_time.strftime("%Y-%m-%d")
     except ValueError as e:
         logging.error(f"Error converting date string to NZT: {e}, date_str: {date_str}")
@@ -245,7 +251,7 @@ def create_adjustment_txn_ynab(ynab_budget_id, ynab_account_id, akahu_balance, y
         transaction = {
             "transaction": {
                 "account_id": ynab_account_id,
-                "date": datetime.datetime.now().strftime("%Y-%m-%d"),
+                "date": datetime.now().strftime("%Y-%m-%d"),
                 "amount": balance_difference,
                 "payee_name": "Balance Adjustment",
                 "memo": f"Adjusted from ${ynab_balance/1000:.2f} to ${akahu_balance/1000:.2f} based on retrieved balance",

@@ -6,6 +6,7 @@ Also provides webhook endpoints for real-time transaction syncing.
 from contextlib import contextmanager
 import os
 import logging
+import signal
 import sys
 from actual import Actual
 
@@ -29,11 +30,12 @@ logging.basicConfig(
 
 
 @contextmanager
-def get_actual_client(run_sync):
-    """Context manager that yields an Actual client if run_sync is True.
+def get_actual_client():
+    """Context manager that yields an Actual client if RUN_SYNC_TO_AB is True.
+    or None otherwise
     This is needed because actualpy only works with contextmanager
     """
-    if run_sync:
+    if RUN_SYNC_TO_AB:
         with Actual(
             base_url=ENVs['ACTUAL_SERVER_URL'],
             password=ENVs['ACTUAL_PASSWORD'],
@@ -44,13 +46,21 @@ def get_actual_client(run_sync):
     else:
         yield None
 
+def signal_handler(sig, frame):
+    logging.info("Received signal to terminate. Shutting down gracefully...")
+    # Perform any cleanup here
+    sys.exit(0)
 
 def main():
     """Main entry point for the sync script."""
+
+    signal.signal(signal.SIGINT, signal_handler)  # Handle Ctrl+C
+    signal.signal(signal.SIGTERM, signal_handler)  # Handle kill
+
     try:
         # Load the existing mapping
         _, _, _, mapping_list = load_existing_mapping()
-        with get_actual_client(RUN_SYNC_TO_AB) as actual:
+        with get_actual_client() as actual:
             # Initialize Actual if syncing to AB
             # Create Flask app with Actual client
             app = create_flask_app(actual, mapping_list, {
@@ -70,7 +80,6 @@ def main():
     except Exception as e:
         logging.exception(f"An unexpected error occurred: {str(e)}")
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

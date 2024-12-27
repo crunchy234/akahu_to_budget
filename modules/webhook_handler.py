@@ -4,7 +4,7 @@ import logging
 from flask import Flask, request, jsonify, redirect, url_for
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.exceptions import InvalidSignature
+# from cryptography.exceptions import InvalidSignature # Currently unused
 import pandas as pd
 
 from modules.account_mapper import load_existing_mapping
