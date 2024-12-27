@@ -32,21 +32,37 @@ logging.basicConfig(
 
 @contextmanager
 def get_actual_client():
-    """Context manager that yields an Actual client if RUN_SYNC_TO_AB is True.
-    or None otherwise
+    """Context manager that yields an Actual client if RUN_SYNC_TO_AB is True,
+    or None otherwise.
     This is needed because actualpy only works with contextmanager
     """
     if RUN_SYNC_TO_AB:
-        with Actual(
-            base_url=ENVs['ACTUAL_SERVER_URL'],
-            password=ENVs['ACTUAL_PASSWORD'],
-            file=ENVs['ACTUAL_SYNC_ID'],
-            encryption_password=ENVs['ACTUAL_ENCRYPTION_KEY']
-        ) as client:
-            yield client
+        try:
+            logging.info(f"Attempting to connect to Actual server at {ENVs['ACTUAL_SERVER_URL']}")
+            
+            # Test the connection first
+            test_response = requests.get(ENVs['ACTUAL_SERVER_URL'])
+            logging.info(f"Server response status: {test_response.status_code}")
+            logging.info(f"Server response headers: {dict(test_response.headers)}")
+            logging.info(f"Server response content: {test_response.text[:500]}")
+            
+            with Actual(
+                base_url=ENVs['ACTUAL_SERVER_URL'],
+                password=ENVs['ACTUAL_PASSWORD'],
+                file=ENVs['ACTUAL_SYNC_ID'],
+                encryption_password=ENVs['ACTUAL_ENCRYPTION_KEY']
+            ) as client:
+                yield client
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Failed to connect to Actual server: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                logging.error(f"Response status: {e.response.status_code}")
+                logging.error(f"Response headers: {dict(e.response.headers)}")
+                logging.error(f"Response content: {e.response.text[:500]}")
+            raise RuntimeError(f"Failed to connect to Actual server: {str(e)}") from None
     else:
         yield None
-
+        
 def signal_handler(sig, frame):
     logging.info("Received signal to terminate. Shutting down gracefully...")
     # Perform any cleanup here
