@@ -60,6 +60,8 @@ def main():
     try:
         # Load the existing mapping
         _, _, _, mapping_list = load_existing_mapping()
+        if RUN_SYNC_TO_AB:
+            logging.info(f"Attempting to connect to Actual server at {ENVs['ACTUAL_SERVER_URL']}")
         with get_actual_client() as actual:
             # Initialize Actual if syncing to AB
             # Create Flask app with Actual client
