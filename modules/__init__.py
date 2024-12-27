@@ -25,6 +25,11 @@ from .transaction_handler import (
     create_adjustment_txn_ynab
 )
 
+from .sync_handler import (
+    sync_to_ab,
+    sync_to_ynab
+)
+
 from .webhook_handler import (
     verify_signature,
     create_flask_app
@@ -53,6 +58,10 @@ __all__ = [
     'handle_tracking_account_actual',
     'clean_txn_for_ynab',
     'create_adjustment_txn_ynab',
+    
+    # Sync Handler
+    'sync_to_ab',
+    'sync_to_ynab',
     
     # Webhook Handler
     'verify_signature',

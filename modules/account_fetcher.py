@@ -3,6 +3,7 @@ import os
 import logging
 import requests
 from actual.queries import get_accounts
+from .config import AKAHU_ENDPOINT, AKAHU_HEADERS
 
 def is_simple_value(value):
     """Check if the value is a trivial type: int, float, str, bool, or None"""
@@ -10,14 +11,9 @@ def is_simple_value(value):
 
 def fetch_akahu_accounts():
     """Fetch accounts from Akahu API"""
-    akahu_endpoint = "https://api.akahu.io/v1/"
-    akahu_headers = {
-        "Authorization": f"Bearer {os.getenv('AKAHU_USER_TOKEN')}",
-        "X-Akahu-ID": os.getenv('AKAHU_APP_TOKEN'),
-    }
     
     logging.info("Fetching Akahu accounts...")
-    response = requests.get(f"{akahu_endpoint}/accounts", headers=akahu_headers)
+    response = requests.get(f"{AKAHU_ENDPOINT}/accounts", headers=AKAHU_HEADERS)
     if response.status_code != 200:
         logging.error(f"Failed to fetch Akahu accounts: {response.status_code} {response.text}")
         raise RuntimeError(f"Failed to fetch Akahu accounts: {response.status_code}")

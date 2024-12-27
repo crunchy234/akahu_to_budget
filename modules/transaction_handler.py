@@ -76,24 +76,33 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
             # Use the imported reconcile_transaction function with the session directly
             # Parse ISO format date and extract just the date component
             parsed_date = datetime.datetime.strptime(transaction_date.replace(".000", ""), "%Y-%m-%dT%H:%M:%SZ").date()
-            reconciled_transaction = reconcile_transaction(
-                actual.session,
-                date=parsed_date,
-                account=actual_account_id,
-                payee=payee_name,
-                notes=notes,
-                amount=amount,
-                imported_id=imported_id,
-                cleared=cleared,
-                imported_payee=payee_name,
-                already_matched=imported_transactions
-            )
+            logging.info(f"Attempting to reconcile transaction: date={parsed_date}, account={actual_account_id}, payee={payee_name}, amount={amount}, imported_id={imported_id}")
+            try:
+                reconciled_transaction = reconcile_transaction(
+                    actual.session,
+                    date=parsed_date,
+                    account=actual_account_id,
+                    payee=payee_name,
+                    notes=notes,
+                    amount=amount,
+                    imported_id=imported_id,
+                    cleared=cleared,
+                    imported_payee=payee_name,
+                    already_matched=imported_transactions
+                )
+                logging.info(f"Reconcile result: {reconciled_transaction}")
+                logging.info(f"Transaction ID: {reconciled_transaction.id if hasattr(reconciled_transaction, 'id') else 'No ID'}")
 
-            if reconciled_transaction.changed():
-                imported_transactions.append(reconciled_transaction)
-                logging.info(f"Created new transaction on {parsed_date} at {payee_name} for ${amount}")
-            else:
-                logging.info(f"Transaction already exists on {parsed_date} at {payee_name} for ${amount}")
+                if reconciled_transaction.changed():
+                    imported_transactions.append(reconciled_transaction)
+                    logging.info(f"Created new transaction on {parsed_date} at {payee_name} for ${amount}")
+                    logging.info(f"Transaction details: {vars(reconciled_transaction)}")
+                else:
+                    logging.info(f"Transaction already exists on {parsed_date} at {payee_name} for ${amount}")
+            except Exception as e:
+                logging.error(f"Error during reconcile: {str(e)}")
+                logging.error(f"Error type: {type(e)}")
+                raise
 
         except Exception as e:
             logging.error(f"Failed to reconcile transaction {imported_id} into Actual: {str(e)}")

@@ -1,12 +1,19 @@
 """Module for handling webhook operations and Flask app creation."""
 import base64
 import logging
+import json
 import pandas as pd
+from datetime import datetime
 from flask import Flask, request, jsonify, redirect, url_for
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.exceptions import InvalidSignature
 from threading import Thread
+from actual.queries import get_transactions
+
+from modules.account_mapper import load_existing_mapping
+from modules.sync_handler import sync_to_ab, sync_to_ynab
+from modules.sync_status import generate_sync_report
 
 from .transaction_handler import (
     load_transactions_into_actual,
@@ -50,34 +57,47 @@ def create_flask_app(actual_client, mapping_list, env_vars):
         """Root endpoint redirects to status."""
         return redirect(url_for('status'))
 
+
     @app.route('/sync', methods=['GET'])
     def run_full_sync():
-        """Endpoint to run a full sync of all accounts."""
-        actual_client.download_budget()
-        logging.info("Budget downloaded successfully for full sync.")
-        for akahu_account_id, mapping_entry in mapping_list.items():
-            if mapping_entry.get('actual_do_not_map'):
-                logging.warning(
-                    f"Skipping sync to Actual Budget for Akahu account {akahu_account_id}: because this account is configured to not be mapped to Actual Budget."
-                )
-                continue
-                
-            if mapping_entry.get('actual_account_id'):
-                last_reconciled_at = mapping_entry.get('actual_synced_datetime', '2024-01-01T00:00:00Z')
-                akahu_df = get_all_akahu(
-                    akahu_account_id,
-                    env_vars['akahu_endpoint'],
-                    env_vars['akahu_headers'],
-                    last_reconciled_at
-                )
-                if akahu_df is not None and not akahu_df.empty:
-                    load_transactions_into_actual(akahu_df, mapping_entry, actual_client)
-            else:
-                logging.warning(
-                    f"Skipping sync to Actual Budget for Akahu account {akahu_account_id}: Missing Actual Budget IDs."
-                )
-        return jsonify({"status": "full sync complete"}), 200
+        """Run a full sync of all accounts."""
+        errors = []
+        actual_count = 0
+        ynab_count = 0
+        
+        try:
+            # Download latest budget state
+            actual_client.download_budget()
+            logging.info("Budget downloaded successfully for full sync")
+            akahu_accounts, actual_accounts, ynab_accounts, _ = load_existing_mapping()
 
+            # Process each account
+            for akahu_account_id, mapping_entry in mapping_list.items():
+                try:
+                    # Process Actual Budget sync
+                    if not mapping_entry.get('actual_do_not_map') and mapping_entry.get('actual_account_id'):
+                        actual_count += sync_to_ab(actual_client, mapping_list, akahu_accounts, actual_accounts, ynab_accounts)
+
+                    # Process YNAB sync
+                    if not mapping_entry.get('ynab_do_not_map') and mapping_entry.get('ynab_account_id'):
+                        ynab_count += sync_to_ynab(mapping_list)
+
+                except Exception as e:
+                    error_msg = f"Error processing account {akahu_account_id}: {str(e)}"
+                    logging.error(error_msg)
+                    errors.append(error_msg)
+
+            # Generate detailed sync report
+            return generate_sync_report(mapping_list, actual_count, ynab_count, errors)
+
+        except Exception as e:
+            error_msg = f"Sync failed: {str(e)}"
+            logging.error(error_msg)
+            return jsonify({
+                "status": "error",
+                "error": error_msg,
+            }), 500
+    
     @app.route('/status', methods=['GET'])
     def status():
         """Endpoint to check if the webhook server is running."""
