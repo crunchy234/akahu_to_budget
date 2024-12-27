@@ -3,7 +3,7 @@ import os
 import logging
 import requests
 from actual.queries import get_accounts
-from .config import AKAHU_ENDPOINT, AKAHU_HEADERS
+from modules.config import AKAHU_ENDPOINT, AKAHU_HEADERS, YNAB_ENDPOINT, YNAB_HEADERS
 
 def is_simple_value(value):
     """Check if the value is a trivial type: int, float, str, bool, or None"""
@@ -105,7 +105,7 @@ def get_akahu_balance(akahu_account_id, akahu_endpoint, akahu_headers):
         return account_data.get('balance')
     except Exception as e:
         logging.error(f"Error fetching balance for account {akahu_account_id}: {e}")
-        return None
+        raise  
 
 def get_actual_balance(actual, actual_account_id):
     """Fetch the balance for an Actual Budget account."""
@@ -121,4 +121,11 @@ def get_actual_balance(actual, actual_account_id):
             return balance
     except Exception as e:
         logging.error(f"Failed to fetch balance for Actual account ID {actual_account_id}: {e}")
-        return None
+        raise  
+
+def get_ynab_balance(ynab_budget_id, ynab_account_id):
+    uri = f"{YNAB_ENDPOINT}budgets/{ynab_budget_id}/accounts/{ynab_account_id}"
+    response = requests.get(uri, headers=YNAB_HEADERS)
+    response.raise_for_status()
+    account_info = response.json()
+    return account_info['data']['account']['balance']

@@ -33,3 +33,9 @@ AKAHU_HEADERS = {
     "Authorization": f"Bearer {ENVs['AKAHU_USER_TOKEN']}",
     "X-Akahu-ID": ENVs['AKAHU_APP_TOKEN']
 }
+
+# Set to false if you don't have a YNAB account, or otherwise want to dsable updating YNAB
+RUN_SYNC_TO_YNAB = True 
+# Set to false if you don't have an Actual Budget account, or otherwise want to dsable updating AB
+RUN_SYNC_TO_AB = True
+

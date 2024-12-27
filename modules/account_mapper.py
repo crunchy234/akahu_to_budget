@@ -21,17 +21,23 @@ def shallow_compare_dicts(dict1, dict2):
 
 def load_existing_mapping(mapping_file="akahu_budget_mapping.json"):
     """Load existing mapping from JSON file"""
-    if Path(mapping_file).exists():
+    try:
         with open(mapping_file, "r") as f:
             data = json.load(f)
-            akahu_accounts = data.get('akahu_accounts', {})
-            actual_accounts = data.get('actual_accounts', {})
-            ynab_accounts = data.get('ynab_accounts', {})
+            # Validate required fields
+            required_fields = ['akahu_accounts', 'actual_accounts', 'ynab_accounts', 'mapping']
+            if not all(field in data for field in required_fields):
+                raise ValueError(f"Mapping file missing required fields: {required_fields}")
+            
             mapping = data.get('mapping', {})
             if isinstance(mapping, list):
                 mapping = {entry['akahu_id']: entry for entry in mapping if 'akahu_id' in entry}
-            return akahu_accounts, actual_accounts, ynab_accounts, mapping
-    return {}, {}, {}, {}
+            return (data['akahu_accounts'], data['actual_accounts'], 
+                   data['ynab_accounts'], mapping)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Mapping file {mapping_file} not found. Run initial setup first.")
+    except json.JSONDecodeError:
+        raise ValueError(f"Invalid JSON in mapping file {mapping_file}")
 
 def combine_accounts(latest_accounts, existing_accounts):
     """Combines latest and existing accounts, preserving date_first_loaded."""
