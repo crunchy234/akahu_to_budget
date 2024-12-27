@@ -8,8 +8,8 @@ from actual.queries import get_transactions
 TEST_TRANSACTION_TEMPLATE = {
     '_account': 'acc_test123',
     '_connection': 'conn_test123',
-    'created_at': '2024-01-01T00:00:00Z',
-    'date': '2024-01-01T00:00:00Z',
+    'created_at': '2024-01-01T00:00:00.000Z',
+    'date': '2024-01-01T00:00:00.000Z',
     'description': 'Test Transaction',
     'amount': 0.00,
     'balance': 1000.00,

@@ -75,7 +75,7 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
         try:
             # Use the imported reconcile_transaction function with the session directly
             # Parse ISO format date and extract just the date component
-            parsed_date = datetime.datetime.strptime(transaction_date, "%Y-%m-%dT%H:%M:%SZ").date()
+            parsed_date = datetime.datetime.strptime(transaction_date.replace(".000", ""), "%Y-%m-%dT%H:%M:%SZ").date()
             reconciled_transaction = reconcile_transaction(
                 actual.session,
                 date=parsed_date,
@@ -91,7 +91,9 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
 
             if reconciled_transaction.changed():
                 imported_transactions.append(reconciled_transaction)
-            logging.info(f"Successfully reconciled transaction: {imported_id}")
+                logging.info(f"Created new transaction on {parsed_date} at {payee_name} for ${amount}")
+            else:
+                logging.info(f"Transaction already exists on {parsed_date} at {payee_name} for ${amount}")
 
         except Exception as e:
             logging.error(f"Failed to reconcile transaction {imported_id} into Actual: {str(e)}")
@@ -155,6 +157,8 @@ def convert_to_nzt(date_str):
         if date_str is None:
             logging.warning("Input date string is None.")
             return None
+        # Remove milliseconds if present before parsing
+        date_str = date_str.replace(".000Z", "Z")
         utc_time = datetime.datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ")
         nzt_time = utc_time + datetime.timedelta(hours=13)
         return nzt_time.strftime("%Y-%m-%d")
@@ -165,7 +169,7 @@ def convert_to_nzt(date_str):
 def clean_txn_for_ynab(akahu_txn, ynab_account_id):
     """Clean and transform Akahu transactions to prepare them for YNAB import."""
     akahu_txn['payee_name'] = akahu_txn.apply(get_payee_name, axis=1)
-    akahu_txn['memo'] = akahu_txn['imported_description']
+    akahu_txn['memo'] = akahu_txn['description']
     akahu_txn_useful = akahu_txn[['_id', 'date', 'amount', 'memo', 'payee_name']].rename(columns={'_id': 'id'}, errors='ignore')
     akahu_txn_useful['amount'] = akahu_txn_useful['amount'].apply(lambda x: str(int(x * 1000)))
     akahu_txn_useful['cleared'] = 'cleared'

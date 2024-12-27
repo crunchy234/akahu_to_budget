@@ -129,9 +129,17 @@ def create_flask_app(actual_client, mapping_list, env_vars):
 def start_webhook_server(app, development_mode=False):
     """Start the Flask webhook server."""
     if development_mode:
+        # In development mode, run with Flask's built-in reloader
         app.run(host="0.0.0.0", port=5000, debug=True)
     else:
-        flask_thread = Thread(target=lambda: app.run(host="0.0.0.0", port=5000))
+        # In production mode, run in a daemon thread that can be interrupted
+        def run_server():
+            try:
+                app.run(host="0.0.0.0", port=5000)
+            except KeyboardInterrupt:
+                logging.info("Webhook server shutting down...")
+                
+        flask_thread = Thread(target=run_server)
         flask_thread.daemon = True
         flask_thread.start()
         logging.info("Webhook server started and running.")

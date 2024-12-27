@@ -107,6 +107,9 @@ def sync_to_ab(actual, mapping_list, akahu_accounts, actual_accounts, ynab_accou
 
             if akahu_df is not None and not akahu_df.empty:
                 load_transactions_into_actual(akahu_df, mapping_entry, actual)
+                # Commit changes to sync with the server
+                actual.commit()
+                logging.info("Committed changes to Actual Budget server")
         else:
             logging.error(f"Unknown account type for Akahu account: {akahu_account_id}")
 
@@ -164,6 +167,16 @@ def sync_to_ynab(mapping_list):
 
 def main():
     """Main entry point for the sync script."""
+    import signal
+    import sys
+
+    def signal_handler(sig, frame):
+        logging.info("Received interrupt signal. Shutting down gracefully...")
+        sys.exit(0)
+
+    # Register the signal handler for clean shutdown
+    signal.signal(signal.SIGINT, signal_handler)
+
     try:
         # Load the existing mapping
         akahu_accounts, actual_accounts, ynab_accounts, mapping_list = load_existing_mapping()
@@ -187,15 +200,24 @@ def main():
                 development_mode = os.getenv('FLASK_ENV') == 'development'
                 start_webhook_server(app, development_mode)
 
-                # Perform initial sync
-                sync_to_ab(actual, mapping_list, akahu_accounts, actual_accounts, ynab_accounts)
-        
-        # Sync to YNAB if enabled
-        if SYNC_TO_YNAB:
-            sync_to_ynab(mapping_list, akahu_accounts, actual_accounts, ynab_accounts)
+                try:
+                    # Perform initial sync
+                    sync_to_ab(actual, mapping_list, akahu_accounts, actual_accounts, ynab_accounts)
+                    
+                    # Sync to YNAB if enabled
+                    if SYNC_TO_YNAB:
+                        sync_to_ynab(mapping_list, akahu_accounts, actual_accounts, ynab_accounts)
+
+                    # Keep the main thread alive to handle signals
+                    while True:
+                        signal.pause()
+                except KeyboardInterrupt:
+                    logging.info("Received interrupt signal. Shutting down gracefully...")
+                    sys.exit(0)
 
     except Exception as e:
         logging.exception("An unexpected error occurred during script execution.")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
