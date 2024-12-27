@@ -14,16 +14,11 @@ def get_all_akahu(akahu_account_id, akahu_endpoint, akahu_headers, last_reconcil
     res = None
     total_txn = 0
 
-    # We always subtract a week - getting an extra week's transactions - because sometimes they arrive late
     if last_reconciled_at:
-        # Parse the string into a datetime object, handling the 'Z' for UTC
         last_reconciled_at_dt = datetime.fromisoformat(last_reconciled_at.replace("Z", "+00:00"))
-        # Subtract one week
         start_time = last_reconciled_at_dt - timedelta(weeks=1)
-        # Convert back to ISO format for query_params
-        query_params['start'] = start_time.isoformat().replace("+00:00", "Z")  # Ensure consistent 'Z' format
+        query_params['start'] = start_time.isoformat().replace("+00:00", "Z")
     else:
-        # Default to the start of time
         query_params['start'] = "2024-01-01T00:00:00Z"
 
     next_cursor = 'first time'
@@ -38,11 +33,11 @@ def get_all_akahu(akahu_account_id, akahu_endpoint, akahu_headers, last_reconcil
                 headers=akahu_headers
             )
             response.raise_for_status()
-            akahu_txn_json = response.json()
         except requests.exceptions.RequestException as e:
-            logging.error(f"Error occurred during Akahu API request: {str(e)}")
-            break
+            logging.error(f"Failed to fetch transactions from Akahu for account {akahu_account_id}: {str(e)}")
+            raise RuntimeError(f"Failed to fetch Akahu transactions: {str(e)}") from None
 
+        akahu_txn_json = response.json()
         akahu_txn = pd.DataFrame(akahu_txn_json.get('items', []))
         if res is None:
             res = akahu_txn.copy()
@@ -79,40 +74,28 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
         cleared = True
 
         try:
-            # Use the imported reconcile_transaction function with the session directly
-            # Parse ISO format date and extract just the date component
             parsed_date = datetime.strptime(transaction_date.replace(".000", ""), "%Y-%m-%dT%H:%M:%SZ").date()
-            logging.info(f"Attempting to reconcile transaction: date={parsed_date}, account={actual_account_id}, payee={payee_name}, amount={amount}, imported_id={imported_id}")
-            try:
-                reconciled_transaction = reconcile_transaction(
-                    actual.session,
-                    date=parsed_date,
-                    account=actual_account_id,
-                    payee=payee_name,
-                    notes=notes,
-                    amount=amount,
-                    imported_id=imported_id,
-                    cleared=cleared,
-                    imported_payee=payee_name,
-                    already_matched=imported_transactions
-                )
-                logging.info(f"Reconcile result: {reconciled_transaction}")
-                logging.info(f"Transaction ID: {reconciled_transaction.id if hasattr(reconciled_transaction, 'id') else 'No ID'}")
-
-                if reconciled_transaction.changed():
-                    imported_transactions.append(reconciled_transaction)
-                    logging.info(f"Created new transaction on {parsed_date} at {payee_name} for ${amount}")
-                    logging.info(f"Transaction details: {vars(reconciled_transaction)}")
-                else:
-                    logging.info(f"Transaction already exists on {parsed_date} at {payee_name} for ${amount}")
-            except Exception as e:
-                logging.error(f"Error during reconcile: {str(e)}")
-                logging.error(f"Error type: {type(e)}")
-                raise
-
+            reconciled_transaction = reconcile_transaction(
+                actual.session,
+                date=parsed_date,
+                account=actual_account_id,
+                payee=payee_name,
+                notes=notes,
+                amount=amount,
+                imported_id=imported_id,
+                cleared=cleared,
+                imported_payee=payee_name,
+                already_matched=imported_transactions
+            )
         except Exception as e:
-            logging.error(f"Failed to reconcile transaction {imported_id} into Actual: {str(e)}")
-            raise
+            logging.error(f"Failed to reconcile transaction {imported_id} into Actual for account {actual_account_id}: {str(e)}")
+            raise RuntimeError(f"Failed to process transaction into Actual: {str(e)}") from None
+
+        if reconciled_transaction.changed():
+            imported_transactions.append(reconciled_transaction)
+            logging.info(f"Created new transaction on {parsed_date} at {payee_name} for ${amount}")
+        else:
+            logging.info(f"Transaction already exists on {parsed_date} at {payee_name} for ${amount}")
 
     mapping_entry['actual_synced_datetime'] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -216,28 +199,26 @@ def load_transactions_into_ynab(akahu_txn, ynab_budget_id, ynab_account_id, ynab
     ynab_api_payload = {
         "transactions": transactions_list
     }
+    
     try:
         response = requests.post(uri, headers=ynab_headers, json=ynab_api_payload)
         response.raise_for_status()
-
-        ynab_response = response.json()
-        if 'duplicate_import_ids' in ynab_response['data'] and len(ynab_response['data']['duplicate_import_ids']) > 0:
-            dup_str = f"Skipped {len(ynab_response['data']['duplicate_import_ids'])} duplicates"
-        else:
-            dup_str = "No duplicates"
-
-        if len(ynab_response['data']['transactions']) == 0:
-            logging.info(f"No new transactions loaded to YNAB - {dup_str}")
-        else:
-            logging.info(f"Successfully loaded {len(ynab_response['data']['transactions'])} transactions to YNAB - {dup_str}")
-
-        return ynab_response
-
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error making the API request to YNAB: {e}")
-        if response is not None:
-            logging.error(f"API response content: {response.text}")
-        return None
+        logging.error(f"Failed to post transactions to YNAB for account {ynab_account_id}: {str(e)}")
+        raise RuntimeError(f"Failed to load transactions into YNAB: {str(e)}") from None
+
+    ynab_response = response.json()
+    if 'duplicate_import_ids' in ynab_response['data'] and len(ynab_response['data']['duplicate_import_ids']) > 0:
+        dup_str = f"Skipped {len(ynab_response['data']['duplicate_import_ids'])} duplicates"
+    else:
+        dup_str = "No duplicates"
+
+    if len(ynab_response['data']['transactions']) == 0:
+        logging.info(f"No new transactions loaded to YNAB - {dup_str}")
+    else:
+        logging.info(f"Successfully loaded {len(ynab_response['data']['transactions'])} transactions to YNAB - {dup_str}")
+
+    return ynab_response
 
 def create_adjustment_txn_ynab(ynab_budget_id, ynab_account_id, akahu_balance, ynab_balance, ynab_endpoint, ynab_headers):
     """Create an adjustment transaction in YNAB to reconcile the balance."""

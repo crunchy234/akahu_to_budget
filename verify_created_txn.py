@@ -8,7 +8,8 @@ from actual import Actual
 from dotenv import load_dotenv
 from sqlmodel import select
 from actual.database import Transactions, Accounts
-from actual.queries import get_transactions
+from actual.queries import get_transactions, create_transaction
+
 from modules.transaction_tester import run_transaction_tests
 from modules.account_mapper import load_existing_mapping
 
@@ -124,110 +125,101 @@ def create_test_transaction(actual_client):
     logger = logging.getLogger(__name__)
     logger.info("\n=== Creating Test Transaction ===")
     
-    try:
-        with actual_client.session as session:
-            # Get the first active account
-            account = session.exec(
-                select(Accounts)
-                .filter(Accounts.closed == 0, Accounts.tombstone == 0)
+    with actual_client.session as session:
+        # Get the first active account
+        account = session.exec(
+            select(Accounts)
+            .filter(Accounts.closed == 0, Accounts.tombstone == 0)
+        ).first()
+        
+        if not account:
+            logger.error("No active accounts found!")
+            return None
+        
+        logger.info(f"Using account: {account.name} (ID: {account.id})")
+        
+        # Create a test transaction
+        test_amount = decimal.Decimal("-10.00")
+        test_date = datetime.now().date()
+        
+        # Create the transaction
+        transaction = create_transaction(
+            session,
+            date=test_date,
+            account=account.id,
+            payee="Debug Test Transaction",
+            notes="Created for visibility debugging",
+            amount=test_amount
+        )
+        
+        # Log pre-commit state
+        logger.info("Transaction created, pre-commit state:")
+        logger.info(f"Transaction in session: {bool(transaction in session)}")
+        logger.info(f"Transaction state: {vars(transaction)}")
+        
+        # Explicitly commit
+        try:
+            session.commit()
+            logger.info("Session committed successfully")
+            
+            # Verify immediately after commit
+            session.refresh(transaction)
+            logger.info("Transaction refreshed from database")
+            logger.info(f"Post-commit state: {vars(transaction)}")
+            
+            # Verify it's in the database
+            verify_txn = session.exec(
+                select(Transactions)
+                .filter(Transactions.id == transaction.id)
             ).first()
+            logger.info(f"Found in database after commit: {bool(verify_txn)}")
             
-            if not account:
-                logger.error("No active accounts found!")
-                return None
-            
-            logger.info(f"Using account: {account.name} (ID: {account.id})")
-            
-            # Create a test transaction
-            test_amount = decimal.Decimal("-10.00")
-            test_date = datetime.now().date()
-            
-            from actual.queries import create_transaction
-            # Create the transaction
-            transaction = create_transaction(
-                session,
-                date=test_date,
-                account=account.id,
-                payee="Debug Test Transaction",
-                notes="Created for visibility debugging",
-                amount=test_amount
-            )
-            
-            # Log pre-commit state
-            logger.info("Transaction created, pre-commit state:")
-            logger.info(f"Transaction in session: {bool(transaction in session)}")
-            logger.info(f"Transaction state: {vars(transaction)}")
-            
-            # Explicitly commit
-            try:
-                session.commit()
-                logger.info("Session committed successfully")
-                
-                # Verify immediately after commit
-                session.refresh(transaction)
-                logger.info("Transaction refreshed from database")
-                logger.info(f"Post-commit state: {vars(transaction)}")
-                
-                # Verify it's in the database
-                verify_txn = session.exec(
-                    select(Transactions)
-                    .filter(Transactions.id == transaction.id)
-                ).first()
-                logger.info(f"Found in database after commit: {bool(verify_txn)}")
-                
-            except Exception as e:
-                logger.error(f"Commit failed: {str(e)}", exc_info=True)
-                session.rollback()
-                raise
-            
-            logger.info(f"Created test transaction: {transaction.id}")
-            return transaction.id
-            
-    except Exception as e:
-        logger.error(f"Error creating test transaction: {str(e)}", exc_info=True)
-        return None
+        except Exception as e:
+            logger.error(f"Commit failed: {str(e)}", exc_info=True)
+            session.rollback()
+            raise
+        
+        logger.info(f"Created test transaction: {transaction.id}")
+        return transaction.id
+        
 
 def main():
     """Main entry point for running debug checks."""
-    try:
-        setup_logging()
-        logger = logging.getLogger(__name__)
-        logger.info("Starting transaction visibility debug")
-        
-        # Load environment variables
-        env_vars = load_env_vars()
-        
-        # Initialize Actual client using context manager
-        with Actual(
-            server_url=env_vars['ACTUAL_SERVER_URL'],
-            password=env_vars['ACTUAL_PASSWORD'],
-            budget_id=env_vars['ACTUAL_SYNC_ID'],
-            encryption_password=env_vars['ACTUAL_ENCRYPTION_KEY']
-        ) as actual_client:
-            # Force initial sync
-            logger.info("Performing initial budget download...")
-            sync_result = actual_client.download_budget()
-            logger.info(f"Initial sync result: {sync_result}")
+    setup_logging()
+    logger = logging.getLogger(__name__)
+    logger.info("StarExceptionting transaction visibility debug")
+    
+    # Load environment variables
+    env_vars = load_env_vars()
+    
+    # Initialize Actual client using context manager
+    with Actual(
+        server_url=env_vars['ACTUAL_SERVER_URL'],
+        password=env_vars['ACTUAL_PASSWORD'],
+        budget_id=env_vars['ACTUAL_SYNC_ID'],
+        encryption_password=env_vars['ACTUAL_ENCRYPTION_KEY']
+    ) as actual_client:
+        # Force initial sync
+        logger.info("Performing initial budget download...")
+        sync_result = actual_client.download_budget()
+        logger.info(f"Initial sync result: {sync_result}")
 
-            # First create a test transaction
-            test_transaction_id = create_test_transaction(actual_client)
-            if test_transaction_id:
-                logger.info(f"Created test transaction with ID: {test_transaction_id}")
-                
-                # Verify the test transaction
-                verify_transaction_visibility(actual_client, test_transaction_id)
-                
-                # Also check for your specific transaction ID if provided
-                if len(sys.argv) > 1:
-                    specific_transaction_id = sys.argv[1]
-                    logger.info(f"\nChecking specific transaction: {specific_transaction_id}")
-                    verify_transaction_visibility(actual_client, specific_transaction_id)
-            else:
-                logger.error("Failed to create test transaction!")
+        # First create a test transaction
+        test_transaction_id = create_test_transaction(actual_client)
+        if test_transaction_id:
+            logger.info(f"Created test transaction with ID: {test_transaction_id}")
+            
+            # Verify the test transaction
+            verify_transaction_visibility(actual_client, test_transaction_id)
+            
+            # Also check for your specific transaction ID if provided
+            if len(sys.argv) > 1:
+                specific_transaction_id = sys.argv[1]
+                logger.info(f"\nChecking specific transaction: {specific_transaction_id}")
+                verify_transaction_visibility(actual_client, specific_transaction_id)
+        else:
+            logger.error("Failed to create test transaction!")
         
-    except Exception as e:
-        logger.error(f"Error running debug: {str(e)}", exc_info=True)
-        sys.exit(1)
 
 if __name__ == '__main__':
     main()
