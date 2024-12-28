@@ -60,7 +60,7 @@ def create_flask_app(actual_client, mapping_list, env_vars):
                 try:
                     if RUN_SYNC_TO_AB:
                         if not mapping_entry.get('actual_do_not_map') and mapping_entry.get('actual_account_id'):
-                            actual_count += sync_to_ab(actual_client, mapping_list, akahu_accounts, actual_accounts, ynab_accounts)
+                            actual_count += sync_to_ab(actual_client, mapping_list)
 
                     if RUN_SYNC_TO_YNAB:
                         if not mapping_entry.get('ynab_do_not_map') and mapping_entry.get('ynab_account_id'):
