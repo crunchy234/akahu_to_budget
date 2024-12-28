@@ -3,6 +3,14 @@ One-way sync of transactions from Akahu to either YNAB or Actual Budget.
 
 We support both Actual Budget and YNAB.  You can sync to both or to just one.
 
+# Project status
+
+I started writing this script some time ago. As of 2024-12-28... I've finally swapped from using my old hodgepodge version to using this.
+That means that today, it's feature complete but not yet battle-hardened.  If you're reading this notably after Dec 2024 then it should be pretty robust.
+
+Also in terms of my personal setup, I haven't yet fully committed to giving up YNAB and an vascilating between YNAB and AB.  You might see oddities in the data 
+created for AB (e.g. Payees, failing to trigger rules).  Please raise bugs.
+
 # Setup
 
 1. Create an Akahu account and an Akahu app: [https://my.akahu.nz/login](https://my.akahu.nz/login)
