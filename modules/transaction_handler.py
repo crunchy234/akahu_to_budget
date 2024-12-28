@@ -70,6 +70,7 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
         payee_name = txn.get("description")
         notes = f"Akahu transaction: {txn.get('description')}"
         amount = decimal.Decimal(txn.get("amount"))
+        amount = amount.quantize(decimal.Decimal("0.0001"))
         imported_id = txn.get("_id")
         cleared = True
 
@@ -98,6 +99,7 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
             logging.info(f"Transaction already exists on {parsed_date} at {payee_name} for ${amount}")
 
     mapping_entry['actual_synced_datetime'] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    return len(imported_transactions)
 
 def handle_tracking_account_actual(mapping_entry, actual):
     """Handle tracking accounts by checking and adjusting balances."""
@@ -112,6 +114,8 @@ def handle_tracking_account_actual(mapping_entry, actual):
 
         if akahu_balance != actual_balance:
             adjustment_amount = decimal.Decimal(akahu_balance - actual_balance) / 100
+            adjustment_amount = adjustment_amount.quantize(decimal.Decimal("0.0001"))
+
             transaction_date = datetime.utcnow().date()
             payee_name = "Balance Adjustment"
             notes = f"Adjusted from {actual_balance / 100} to {akahu_balance / 100} to reconcile tracking account."
@@ -129,11 +133,14 @@ def handle_tracking_account_actual(mapping_entry, actual):
                 imported_payee=payee_name
             )
             logging.info(f"Created balance adjustment transaction for {akahu_account_name}")
+            return 1
         else:
             logging.info(f"No balance adjustment needed for {akahu_account_name}")
+            return 0
 
     except Exception as e:
         logging.error(f"Error handling tracking account {akahu_account_name}: {str(e)}")
+        raise
 
 def get_payee_name(row):
     """Extract the payee name from the given row, prioritizing the merchant name if available."""
@@ -189,7 +196,7 @@ def get_ynab_transactions(ynab_budget_id, ynab_endpoint, ynab_headers):
         logging.error(f"Error fetching transactions from YNAB: {e}")
         if response is not None:
             logging.error(f"API response content: {response.text}")
-        return []
+        raise
 
 def load_transactions_into_ynab(akahu_txn, ynab_budget_id, ynab_account_id, ynab_endpoint, ynab_headers):
     """Save transactions from Akahu to YNAB."""
@@ -218,7 +225,7 @@ def load_transactions_into_ynab(akahu_txn, ynab_budget_id, ynab_account_id, ynab
     else:
         logging.info(f"Successfully loaded {len(ynab_response['data']['transactions'])} transactions to YNAB - {dup_str}")
 
-    return ynab_response
+    return len(ynab_response['data']['transactions'])
 
 def create_adjustment_txn_ynab(ynab_budget_id, ynab_account_id, akahu_balance, ynab_balance, ynab_endpoint, ynab_headers):
     """Create an adjustment transaction in YNAB to reconcile the balance."""
@@ -247,3 +254,4 @@ def create_adjustment_txn_ynab(ynab_budget_id, ynab_account_id, akahu_balance, y
         
     except requests.exceptions.RequestException as e:
         logging.error(f"Failed to create balance adjustment transaction: {e}")
+        raise

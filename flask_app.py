@@ -4,16 +4,18 @@ Also provides webhook endpoints for real-time transaction syncing.
 """
 
 from contextlib import contextmanager
+import os
 import logging
+import argparse
 from actual import Actual
-import requests
 
 # Import from our modules package
-from modules.webhook_handler import create_flask_app
+from modules.sync_handler import sync_to_ab, sync_to_ynab
 from modules.account_mapper import load_existing_mapping
 from modules.config import AKAHU_ENDPOINT, AKAHU_HEADERS
-from modules.config import RUN_SYNC_TO_AB
+from modules.config import RUN_SYNC_TO_AB, RUN_SYNC_TO_YNAB
 from modules.config import ENVs
+from modules.webhook_handler import create_flask_app
 
 # Configure logging
 logging.basicConfig(
@@ -42,9 +44,9 @@ def get_actual_client():
             ) as client:
                 logging.info(f"Connected to AB: {client}")
                 yield client
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             logging.error(f"Failed to connect to Actual server: {str(e)}")
-            raise RuntimeError(f"Failed to connect to Actual server: {str(e)}") from None
+            raise
     else:
         yield None
 
@@ -63,3 +65,35 @@ def create_application():
 
 # Directly expose `application` for WSGI
 application = create_application()
+
+
+def run_sync():
+    """Run sync operations directly."""
+    logging.info("Starting direct sync...")
+    actual_count = ynab_count = 0
+
+    _, _, _, mapping_list = load_existing_mapping()
+
+    if RUN_SYNC_TO_AB:
+        with get_actual_client() as actual_client:
+            actual_client.download_budget()
+            actual_count = sync_to_ab(actual_client, mapping_list)
+            logging.info(f"Synced {actual_count} accounts to Actual Budget.")
+
+    if RUN_SYNC_TO_YNAB:
+        ynab_count = sync_to_ynab(mapping_list)
+        logging.info(f"Synced {ynab_count} accounts to YNAB.")
+
+    logging.info(f"Sync completed. Actual count: {actual_count}, YNAB count: {ynab_count}")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run the Flask app or perform direct sync.")
+    parser.add_argument("--sync", action="store_true", help="Perform direct sync and exit.")
+    args = parser.parse_args()
+
+    if args.sync:
+        run_sync()
+    else:
+        development_mode = os.getenv('FLASK_ENV') == 'development'
+        application.run(host="127.0.0.1", port=5000, debug=development_mode)

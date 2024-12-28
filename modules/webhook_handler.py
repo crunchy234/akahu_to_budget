@@ -51,27 +51,16 @@ def create_flask_app(actual_client, mapping_list, env_vars):
         ynab_count = 0
         
         try:
-            akahu_accounts, actual_accounts, ynab_accounts, _ = load_existing_mapping()
+            _, _, _, mapping_list = load_existing_mapping()
 
             if RUN_SYNC_TO_AB:
                 actual_client.download_budget()
-                
-            for akahu_account_id, mapping_entry in mapping_list.items():
-                try:
-                    if RUN_SYNC_TO_AB:
-                        if not mapping_entry.get('actual_do_not_map') and mapping_entry.get('actual_account_id'):
-                            actual_count += sync_to_ab(actual_client, mapping_list)
+                actual_count = sync_to_ab(actual_client, mapping_list)
 
-                    if RUN_SYNC_TO_YNAB:
-                        if not mapping_entry.get('ynab_do_not_map') and mapping_entry.get('ynab_account_id'):
-                            ynab_count += sync_to_ynab(mapping_list)
+            if RUN_SYNC_TO_YNAB:
+                ynab_count = sync_to_ynab(mapping_list)
 
-                except Exception as e:
-                    error_msg = f"Error processing account {akahu_account_id}: {str(e)}"
-                    logging.error(error_msg)
-                    errors.append(error_msg)
-
-            return generate_sync_report(mapping_list, actual_count, ynab_count, errors)
+            return generate_sync_report(mapping_list, actual_count, ynab_count)
 
         except Exception as e:
             logging.error(f"Sync failed: {str(e)}")

@@ -86,7 +86,7 @@ def fetch_ynab_accounts():
         return ynab_accounts
     except Exception as e:
         logging.error(f"Failed to fetch YNAB accounts: {e}")
-        return {}
+        raise
 
 def get_akahu_balance(akahu_account_id, akahu_endpoint, akahu_headers):
     """Fetch the balance for an Akahu account."""

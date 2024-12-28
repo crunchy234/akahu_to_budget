@@ -29,7 +29,8 @@ def update_mapping_timestamps(successful_ab_syncs=None, successful_ynab_syncs=No
 
 def sync_to_ynab(mapping_list):
     """Sync transactions from Akahu to YNAB."""
-    successful_ynab_syncs = set()
+    successful_syncs = set()
+    transactions_uploaded = 0
 
     for akahu_account_id, mapping_entry in mapping_list.items():
         ynab_budget_id = mapping_entry.get('ynab_budget_id')
@@ -78,7 +79,8 @@ def sync_to_ynab(mapping_list):
                     YNAB_HEADERS
                 )
                 logging.info(f"Created balance adjustment for {ynab_account_name}")
-            successful_ynab_syncs.add(akahu_account_id)
+                transactions_uploaded += 1
+            successful_syncs.add(akahu_account_id)
 
         elif account_type == 'On Budget':
             akahu_df = get_all_akahu(
@@ -93,23 +95,25 @@ def sync_to_ynab(mapping_list):
                 cleaned_txn = clean_txn_for_ynab(akahu_df, ynab_account_id)
                 
                 # Load transactions into YNAB
-                load_transactions_into_ynab(
+                transactions_uploaded += load_transactions_into_ynab(
                     cleaned_txn,
                     mapping_entry['ynab_budget_id'],
                     mapping_entry['ynab_account_id'],
                     YNAB_ENDPOINT,
                     YNAB_HEADERS
                 )
-                successful_ynab_syncs.add(akahu_account_id)
+                successful_syncs.add(akahu_account_id)
         else:
             logging.error(f"Unknown account type for Akahu account: {akahu_account_id}")
 
-    if successful_ynab_syncs:
-        update_mapping_timestamps(successful_ynab_syncs=successful_ynab_syncs)
+    if successful_syncs:
+        update_mapping_timestamps(successful_ynab_syncs=successful_syncs)
+    return transactions_uploaded
 
 def sync_to_ab(actual, mapping_list):
     """Sync transactions from Akahu to Actual Budget."""
     successful_ab_syncs = set()
+    transactions_uploaded = 0
 
     for akahu_account_id, mapping_entry in mapping_list.items():
         actual_account_id = mapping_entry.get('actual_account_id')
@@ -143,7 +147,7 @@ def sync_to_ab(actual, mapping_list):
         transactions_processed = False
         
         if account_type == 'Tracking':
-            handle_tracking_account_actual(mapping_entry, actual)
+            transactions_uploaded += handle_tracking_account_actual(mapping_entry, actual) # Note either 1 or 0 returned
             transactions_processed = True
             successful_ab_syncs.add(akahu_account_id)
         elif account_type == 'On Budget':
@@ -156,12 +160,13 @@ def sync_to_ab(actual, mapping_list):
 
             if akahu_df is not None and not akahu_df.empty:
                 logging.info("About to load transactions into Actual Budget...")
-                load_transactions_into_actual(akahu_df, mapping_entry, actual)
+                transactions_uploaded += load_transactions_into_actual(akahu_df, mapping_entry, actual)
                 transactions_processed = True
                 successful_ab_syncs.add(akahu_account_id)
         else:
             logging.error(f"Unknown account type for Akahu account: {akahu_account_id}")
-
+            raise
+        
         # Commit changes if any transactions were processed
         if transactions_processed:
             logging.info("Finished processing transactions, about to commit...")
@@ -176,3 +181,4 @@ def sync_to_ab(actual, mapping_list):
 
     if successful_ab_syncs:
         update_mapping_timestamps(successful_ab_syncs=successful_ab_syncs)
+    return transactions_uploaded
