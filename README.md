@@ -21,8 +21,6 @@ created for AB (e.g. Payees, failing to trigger rules).  Please raise bugs.
 6. Create a virtual environment and run `pip install -r requirements.txt`
 7. Create a `.env` file in the root of the project with the following variables:
 ```
-AKAHU_API_KEY=<your_akahu_api_key>
-AKAHU_API_SECRET=<your_akahu_api_secret>
 ACTUAL_SERVER_URL="https://<your actual budget host>/"
 ACTUAL_PASSWORD="your actual budget password"
 ACTUAL_ENCRYPTION_KEY="your actual budget encryption key"
@@ -35,7 +33,70 @@ OPENAI_API_KEY="your openai key"
 YNAB_BEARER_TOKEN="your ynab bearer token"
 YNAB_BUDGET_ID="The budget you want to sync"
 ```
-Note that the OPENAI key is optional.  I included it more for fun.  It makes the matching a bit smarter
+Note that the OPENAI key is optional.  I included it more for fun.  It makes the matching a bit smarter.  In the future
+I might make it so it tries to guess your category based on the transaction memo.
+
+You can find an exammple .env file in this repository called .env.example - just rename it to .env
+
+# Setup (detail)
+
+Note that I have both YNAB and AB.  In theory this script supports running with either or both, but it's only been
+tested with both.  If you have only one then please get in contact and let me know how you got on.
+
+## Akahu 
+To sign up to Akahu you need to create what they call personal API or a 'user scoped endpoint' as documented here
+https://developers.akahu.nz/reference/api-akahu-io-authentication
+
+Here's a picture from my setup
+
+![Akahu Setup](documentation/akahu_setup.png)
+
+## Actual Budget
+
+I use pikapods for my setup.  You can sign up here: https://actualbudget.org/docs/install/pikapods/
+
+Once you've signed up you create your budget.  If you're coming from YNAB then there's a tool: https://json-exporter-for-ynab.netlify.app/
+
+I prefer to both have a password for my Actual Budget server AND to encrypt my data on Actual Budget.  That way even if
+someone broke into PikaPods they wouldn't get automatic access to my financial data.  The code assumes you're doing this
+too - you'll need to tweak it 
+
+Now open your budget in YNAB and click 'show advanced settings'
+![Actual Setup](documentation/actual_setup.png)
+
+## YNAB
+
+You can create a personal API in YNAB as per the instructions https://api.ynab.com/
+
+If you're the type of person who just wants to get up and running as quickly as possible and then circle back to fill in the gaps, these steps are for you:
+
+1. Sign in to the YNAB web app and go to the "Account Settings" page and then to the "Developer Settings" page. 
+2. Under the "Personal Access Tokens" section, click "New Token", enter your password and click "Generate" to get an access token.
+3. Open a terminal window and run this:
+curl -H "Authorization: Bearer <ACCESS_TOKEN>" https://api.ynab.com/v1/budgets
+
+![YNAB Setup](documentation/ynab_setup.png)
+
+## OpenAI
+
+I haven't bothered to document this because it's optional.  The setup is similar to YNAB.
+
+## Python
+
+I always use a virtual environment for each project. I used Python 3.12 here, but most versions of Python 3 should work.
+
+```bash
+python3.12 -m venv .venv
+
+# Linux/Mac
+source .venv/bin/activate
+
+# Windows
+.\.venv\Scripts\activate
+
+# Once activated
+pip install -r requirements.txt
+```
 
 # Preparing to run the script
 
