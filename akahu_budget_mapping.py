@@ -56,6 +56,11 @@ required_envs = [
 ENVs = {key: os.getenv(key) for key in required_envs}
 SYNC_TO_YNAB = True
 SYNC_TO_AB = True
+DEBUG = True
+
+if DEBUG:
+    for key, value in ENVs.items():
+        logging.info("Environment variable {key}: {value}".format(key=key, value=value))
 
 # Validate that all environment variables are loaded
 for key, value in ENVs.items():
