@@ -56,7 +56,7 @@ required_envs = [
 ENVs = {key: os.getenv(key) for key in required_envs}
 SYNC_TO_YNAB = True
 SYNC_TO_AB = True
-DEBUG = True
+DEBUG = False
 
 if DEBUG:
     for key, value in ENVs.items():
@@ -94,7 +94,7 @@ def main():
         logging.info("Not syncing to YNAB")
 
     # Step 0: Load existing mapping and validate
-    existing_akahu_accounts, existing_actual_accounts, existing_ynab_accounts, existing_mapping = load_existing_mapping()
+    existing_akahu_accounts, existing_actual_accounts, existing_ynab_accounts, existing_mapping = load_existing_mapping(generate_stub=True)
 
     # Retrofit budget IDs to existing mappings to avoid having to manually remap accounts
     # This is a one-time update for existing mappings that don't have these fields

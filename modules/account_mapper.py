@@ -19,7 +19,21 @@ def shallow_compare_dicts(dict1, dict2):
     dict2_filtered = {k: v for k, v in dict2.items() if is_simple_value(v)}
     return dict1_filtered == dict2_filtered
 
-def load_existing_mapping(mapping_file="akahu_budget_mapping.json"):
+
+def generate_mapping_stub(mapping_file="akahu_budget_mapping.json"):
+    """Generate a stub JSON file for the mapping."""
+    stub = {
+        "akahu_accounts": {},
+        "actual_accounts": {},
+        "ynab_accounts": {},
+        "mapping": {}
+    }
+    with open(mapping_file, "w") as f:
+        json.dump(stub, f, indent=4)
+    print(f"Stub mapping file created: {mapping_file}")
+
+
+def load_existing_mapping(mapping_file="akahu_budget_mapping.json", generate_stub=False):
     """Load existing mapping from JSON file"""
     try:
         with open(mapping_file, "r") as f:
@@ -35,7 +49,9 @@ def load_existing_mapping(mapping_file="akahu_budget_mapping.json"):
             return (data['akahu_accounts'], data['actual_accounts'], 
                    data['ynab_accounts'], mapping)
     except FileNotFoundError:
-        raise FileNotFoundError(f"Mapping file {mapping_file} not found. Run initial setup first.")
+        logging.warning("Mapping file not found - first run ever?")
+        generate_mapping_stub(mapping_file=mapping_file)
+        return load_existing_mapping(mapping_file=mapping_file, generate_stub=False)
     except json.JSONDecodeError:
         raise ValueError(f"Invalid JSON in mapping file {mapping_file}")
 
