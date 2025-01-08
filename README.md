@@ -55,7 +55,7 @@ Here's a picture from my setup
 
 I use pikapods for my setup.  You can sign up here: https://actualbudget.org/docs/install/pikapods/
 
-Once you've signed up you create your budget.  If you're coming from YNAB then there's a tool: https://json-exporter-for-ynab.netlify.app/
+Once you've signed up you can set up your accounts and create your budget.  If you're coming from YNAB then there's a tool: https://json-exporter-for-ynab.netlify.app/
 
 I prefer to both have a password for my Actual Budget server AND to encrypt my data on Actual Budget.  That way even if
 someone broke into PikaPods they wouldn't get automatic access to my financial data.  The code assumes you're doing this
@@ -103,9 +103,11 @@ pip install -r requirements.txt
 
 Run `python akahu_budget_mapping.py`
 
-This will ask you a bunch of questions like 
+This lets you interactively map your bank accounts with accounts set up in Actual Budget or YNAB.
+
+It will ask you a bunch of questions like 
 ```Akahu Account: DAY TO DAY (Connection: Kiwibank)
-Here is a list of target accounts:
+Here is a list of actual accounts:
 ...
 Enter the number corresponding to the best match (or press Enter to skip):
 ```
