@@ -62,7 +62,8 @@ someone broke into PikaPods they wouldn't get automatic access to my financial d
 too - you'll need to tweak it 
 
 Now open your budget in YNAB and click 'show advanced settings'
-![Actual Setup](documentation/actual_setup.png)
+
+![Actual Setup](documentation/actual_budget_settings.png)
 
 ## YNAB
 
