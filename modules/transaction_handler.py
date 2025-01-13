@@ -68,7 +68,7 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
     for _, txn in transactions.iterrows():
         transaction_date = txn.get("date")
         payee_name = txn.get("description")
-        notes = f"Akahu transaction: {txn.get('description')}"
+        notes = txn.get('description')
         amount = decimal.Decimal(txn.get("amount"))
         amount = amount.quantize(decimal.Decimal("0.0001"))
         imported_id = txn.get("_id")
