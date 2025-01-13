@@ -75,15 +75,20 @@ def main():
     latest_ynab_accounts = {}
 
     if SYNC_TO_AB:
-        with Actual(
-            base_url=ENVs['ACTUAL_SERVER_URL'],
-            password=ENVs['ACTUAL_PASSWORD'],
-            file=ENVs['ACTUAL_SYNC_ID'],
-            encryption_password=ENVs['ACTUAL_ENCRYPTION_KEY']
-        ) as actual:
-            logging.info("Actual Budget API initialized successfully.")
-            latest_actual_accounts = fetch_actual_accounts(actual)
-            logging.info(f"Fetched {len(latest_actual_accounts)} Actual Budget accounts.")
+        try:
+            with Actual(
+                    base_url=ENVs['ACTUAL_SERVER_URL'],
+                    password=ENVs['ACTUAL_PASSWORD'],
+                    file=ENVs['ACTUAL_SYNC_ID'],
+                    encryption_password=ENVs['ACTUAL_ENCRYPTION_KEY']
+            ) as actual:
+                logging.info("Actual Budget API initialized successfully.")
+                latest_actual_accounts = fetch_actual_accounts(actual)
+                logging.info(
+                    f"Fetched {len(latest_actual_accounts)} Actual Budget accounts.")
+        except Exception as e:
+            logging.error(f"Failed to initialize Actual Budget API: {e}")
+            raise
     else:
         logging.info("Not syncing to Actual Budget")
 
