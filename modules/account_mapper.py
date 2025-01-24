@@ -291,15 +291,35 @@ def match_accounts(akahu_to_account_mapping, akahu_accounts, target_accounts, ac
             selected_account = seq_to_acct(validated_index, target_accounts_list)
             selected_id = selected_account['id']
             selected_name = selected_account['name']
-            akahu_to_account_mapping.setdefault(akahu_id, {}).update({
+            
+            # Determine account type based on the budget system
+            if account_type == 'ynab':
+                new_account_type = "Tracking" if not selected_account.get('on_budget') else "On Budget"
+            else:  # actual
+                new_account_type = "Tracking" if selected_account.get('offbudget') == 1 else "On Budget"
+            
+            # Check for existing account type if this account is already mapped
+            existing_mapping = akahu_to_account_mapping.get(akahu_id, {})
+            existing_type = existing_mapping.get('account_type')
+            if existing_type and existing_type != new_account_type:
+                logging.warning(f"Account type mismatch for {akahu_name}: Previously {existing_type}, but {account_type} indicates {new_account_type}")
+            
+            # Create or update the mapping
+            mapping_update = {
                 target_account_key: selected_id,
                 target_account_name: selected_name,
                 "akahu_id": akahu_id,
                 "akahu_name": akahu_name,
                 f"{account_type}_matched_date": datetime.now().isoformat(),
-                "actual_budget_id": os.getenv('ACTUAL_SYNC_ID') if account_type == 'actual' else None,
-                "ynab_budget_id": os.getenv('YNAB_BUDGET_ID') if account_type == 'ynab' else None,
-            })
+                "actual_budget_id": os.getenv('ACTUAL_SYNC_ID') if account_type == 'actual' else existing_mapping.get('actual_budget_id'),
+                "ynab_budget_id": os.getenv('YNAB_BUDGET_ID') if account_type == 'ynab' else existing_mapping.get('ynab_budget_id'),
+            }
+            
+            # Only set account_type if it's not already set or if this is YNAB (YNAB is authoritative for account type)
+            if not existing_type or account_type == 'ynab':
+                mapping_update["account_type"] = new_account_type
+            
+            akahu_to_account_mapping.setdefault(akahu_id, {}).update(mapping_update)
             print(f"Mapped Akahu account '{akahu_name}' to target account '{selected_name}'.")
 
     return akahu_to_account_mapping

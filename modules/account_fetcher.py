@@ -2,7 +2,7 @@
 import os
 import logging
 import requests
-from actual.queries import get_accounts
+from actual.queries import get_accounts, get_account
 from modules.config import AKAHU_ENDPOINT, AKAHU_HEADERS, YNAB_ENDPOINT, YNAB_HEADERS
 
 def is_simple_value(value):
@@ -102,7 +102,10 @@ def get_akahu_balance(akahu_account_id, akahu_endpoint, akahu_headers):
             )
             return None
         account_data = response.json()
-        return account_data.get('balance')
+        item = account_data.get('item', {})
+        balance = item.get('balance', {}).get('current')
+        logging.info(f"Extracted balance: {balance}")
+        return balance
     except Exception as e:
         logging.error(f"Error fetching balance for account {akahu_account_id}: {e}")
         raise  
@@ -110,18 +113,18 @@ def get_akahu_balance(akahu_account_id, akahu_endpoint, akahu_headers):
 def get_actual_balance(actual, actual_account_id):
     """Fetch the balance for an Actual Budget account."""
     try:
-        with actual.session() as session:
-            account = get_accounts(session, actual_account_id)
+        with actual.session as session:
+            account = get_account(session, actual_account_id)
             if account is None:
                 logging.error(f"Account '{actual_account_id}' not found.")
                 return None
 
-            balance = account.balance_current
-            logging.info(f"Balance fetched for Actual account '{actual_account_id}': {balance}")
-            return balance
+            total_balance = account.balance
+            logging.info(f"Balance fetched for Actual account '{actual_account_id}': {total_balance}")
+            return total_balance
     except Exception as e:
         logging.error(f"Failed to fetch balance for Actual account ID {actual_account_id}: {e}")
-        raise  
+        raise
 
 def get_ynab_balance(ynab_budget_id, ynab_account_id):
     uri = f"{YNAB_ENDPOINT}budgets/{ynab_budget_id}/accounts/{ynab_account_id}"

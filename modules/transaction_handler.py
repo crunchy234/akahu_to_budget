@@ -113,12 +113,12 @@ def handle_tracking_account_actual(mapping_entry, actual):
         actual_balance = get_actual_balance(actual, actual_account_id)
 
         if akahu_balance != actual_balance:
-            adjustment_amount = decimal.Decimal(akahu_balance - actual_balance) / 100
+            adjustment_amount = decimal.Decimal(akahu_balance - actual_balance)
             adjustment_amount = adjustment_amount.quantize(decimal.Decimal("0.0001"))
 
             transaction_date = datetime.utcnow().date()
             payee_name = "Balance Adjustment"
-            notes = f"Adjusted from {actual_balance / 100} to {akahu_balance / 100} to reconcile tracking account."
+            notes = f"Adjusted from ${actual_balance/100:,.2f} to ${akahu_balance/100:,.2f} to reconcile tracking account."
 
             # Use the imported create_transaction function with the session directly
             create_transaction(

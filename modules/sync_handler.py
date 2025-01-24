@@ -66,7 +66,7 @@ def sync_to_ynab(mapping_list):
             mapping_entry['akahu_balance'] = akahu_balance
             
             # Get YNAB balance in milliunits (YNAB uses milliunits internally)
-            ynab_balance = get_ynab_balance(ynab_budget_id, ynab_account_id, YNAB_ENDPOINT, YNAB_HEADERS)
+            ynab_balance = get_ynab_balance(ynab_budget_id, ynab_account_id)
             akahu_balance_milliunits = int(akahu_balance * 1000)
 
             if ynab_balance != akahu_balance_milliunits:
@@ -137,16 +137,21 @@ def sync_to_ab(actual, mapping_list):
         logging.info(f"Processing Akahu account: {akahu_account_name} ({akahu_account_id}) linked to Actual account: {actual_account_name} ({actual_account_id})")
         logging.info(f"Last synced: {last_reconciled_at}")
 
-        # Update balance for mapping entry
-        mapping_entry['akahu_balance'] = get_akahu_balance(
-            akahu_account_id, 
-            AKAHU_ENDPOINT, 
-            AKAHU_HEADERS
-        )
-
         transactions_processed = False
         
         if account_type == 'Tracking':
+            # Update balance for mapping entry
+            akahu_balance = get_akahu_balance(
+                akahu_account_id,
+                AKAHU_ENDPOINT,
+                AKAHU_HEADERS
+            )
+            if akahu_balance is None:
+                logging.error(f"Could not get balance for tracking account {mapping_entry['akahu_name']}")
+                continue
+                
+            logging.info(f"Got balance for {mapping_entry['akahu_name']}: {akahu_balance}")
+            mapping_entry['akahu_balance'] = akahu_balance
             transactions_uploaded += handle_tracking_account_actual(mapping_entry, actual) # Note either 1 or 0 returned
             transactions_processed = True
             successful_ab_syncs.add(akahu_account_id)
