@@ -152,10 +152,25 @@ def get_openai_match_suggestion(akahu_account, target_accounts, akahu_to_account
 
         "Akahu Account:\n"
         f"Name: {akahu_account['name']}\n"
-        f"Connection: {akahu_account['connection']}\n\n"
-        "Here is a list of target accounts:\n"
-        "0. This account probably does not match any options\n"
+        f"Connection: {akahu_account['connection']}"
     )
+
+    # Check for existing mapping in the other budget system
+    if target_account_key == 'actual_account_id':
+        # Looking for Actual match, check YNAB mapping
+        for mapping in akahu_to_account_mapping.values():
+            if mapping.get('akahu_name') == akahu_account['name'] and mapping.get('ynab_account_name'):
+                prompt += f"\nThis account is already mapped to '{mapping['ynab_account_name']}' in YNAB"
+                break
+    else:
+        # Looking for YNAB match, check Actual mapping
+        for mapping in akahu_to_account_mapping.values():
+            if mapping.get('akahu_name') == akahu_account['name'] and mapping.get('actual_account_name'):
+                prompt += f"\nThis account is already mapped to '{mapping['actual_account_name']}' in Actual Budget"
+                break
+
+    prompt += "\n\nHere is a list of target accounts:\n"
+    prompt += "0. This account probably does not match any options\n"
 
     for idx, account in enumerate(target_accounts, start=1):
         account_id = account['id']
@@ -170,7 +185,7 @@ def get_openai_match_suggestion(akahu_account, target_accounts, akahu_to_account
     try:
         client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         response = client.chat.completions.create(
-            model="gpt-4o-2024-11-20",
+            model="gpt-4",
             messages=[
                 {"role": "system", "content": "Select the best match by responding with a number, including 0 if no match is suitable. Respond strictly with a number—no explanations or commentary."},
                 {"role": "user", "content": prompt}
@@ -243,6 +258,14 @@ def match_accounts(akahu_to_account_mapping, akahu_accounts, target_accounts, ac
         suggested_index = get_openai_match_suggestion(akahu_account, target_accounts_list, akahu_to_account_mapping, target_account_key) if use_openai else get_fuzzy_match_suggestion(akahu_account, target_accounts_list, akahu_to_account_mapping, target_account_key)
 
         print(f"\nAkahu Account: {akahu_name} (Connection: {akahu_account['connection']})")
+        
+        # Show existing mapping from other system
+        existing_mapping = akahu_to_account_mapping.get(akahu_id, {})
+        if account_type == 'actual' and existing_mapping.get('ynab_account_name'):
+            print(f"Currently mapped in YNAB to: {existing_mapping['ynab_account_name']}")
+        elif account_type == 'ynab' and existing_mapping.get('actual_account_name'):
+            print(f"Currently mapped in Actual Budget to: {existing_mapping['actual_account_name']}")
+            
         if f"{account_type}_do_not_map" in akahu_to_account_mapping.get(akahu_id, {}):
             print(f"Previously marked as DO NOT MAP for {account_type}")
         print(f"Here is a list of {account_type} accounts:")

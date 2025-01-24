@@ -118,7 +118,7 @@ def handle_tracking_account_actual(mapping_entry, actual):
 
             transaction_date = datetime.utcnow().date()
             payee_name = "Balance Adjustment"
-            notes = f"Adjusted from ${actual_balance/100:,.2f} to ${akahu_balance/100:,.2f} to reconcile tracking account."
+            notes = f"Adjusted from ${actual_balance/100:,.2f} to ${akahu_balance/100:,.2f} to reconcile tracking account. (Both values in cents: {actual_balance} to {akahu_balance})"
 
             # Use the imported create_transaction function with the session directly
             create_transaction(
