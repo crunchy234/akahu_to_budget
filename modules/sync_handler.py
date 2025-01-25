@@ -211,7 +211,9 @@ def sync_to_ab(actual, mapping_list):
                     "groupId": actual._file.group_id,
                     "keyId": actual._file.encrypt_key_id
                 })
-                request.set_timestamp(client_id=actual._client.client_id, now=actual._client.ts)
+                # Use current timestamp instead of client.ts which may not exist
+                current_timestamp = int(datetime.now().timestamp() * 1000)  # Convert to milliseconds
+                request.set_timestamp(client_id=actual._client.client_id, now=current_timestamp)
                 changes = actual.sync_sync(request)
                 if DEBUG_SYNC:
                     logging.info(f"Sync changes: {changes.get_messages(actual._master_key)}")
