@@ -28,63 +28,70 @@ logging.basicConfig(
 )
 
 
-@contextmanager
 def get_actual_client():
-    """Context manager that yields an Actual client if RUN_SYNC_TO_AB is True,
+    """Create and return an Actual client if RUN_SYNC_TO_AB is True,
     or None otherwise.
     """
     if RUN_SYNC_TO_AB:
         try:
             logging.info(f"Attempting to connect to Actual server at {ENVs['ACTUAL_SERVER_URL']}")
-            with Actual(
+            client = Actual(
                 base_url=ENVs['ACTUAL_SERVER_URL'],
                 password=ENVs['ACTUAL_PASSWORD'],
                 file=ENVs['ACTUAL_SYNC_ID'],
                 encryption_password=ENVs['ACTUAL_ENCRYPTION_KEY']
-            ) as client:
-                logging.info(f"Connected to AB: {client}")
-                yield client
+            )
+            client.__enter__()  # Initialize the connection
+            logging.info(f"Connected to AB: {client}")
+            return client
         except Exception as e:
             logging.error(f"Failed to connect to Actual server: {str(e)}")
             raise
-    else:
-        yield None
+    return None
 
 
 # Create and export the Flask app for WSGI
-def create_application():
+def create_application(actual_client=None):
+    """Create Flask application with optional existing Actual client."""
     _, _, _, mapping_list = load_existing_mapping()
-    with get_actual_client() as actual:
-        app = create_flask_app(actual, mapping_list, {
-            'AKAHU_PUBLIC_KEY': ENVs['AKAHU_PUBLIC_KEY'],
-            'akahu_endpoint': AKAHU_ENDPOINT,
-            'akahu_headers': AKAHU_HEADERS
-        })
-        return app
+    if actual_client is None and RUN_SYNC_TO_AB:
+        actual_client = get_actual_client()
+    
+    app = create_flask_app(actual_client, mapping_list, {
+        'AKAHU_PUBLIC_KEY': ENVs['AKAHU_PUBLIC_KEY'],
+        'akahu_endpoint': AKAHU_ENDPOINT,
+        'akahu_headers': AKAHU_HEADERS
+    })
+    return app
 
 
-# Directly expose `application` for WSGI
-application = create_application()
-
-
-def run_sync():
-    """Run sync operations directly."""
+def run_sync(actual_client=None):
+    """Run sync operations directly with optional existing Actual client."""
     logging.info("Starting direct sync...")
     actual_count = ynab_count = 0
 
     _, _, _, mapping_list = load_existing_mapping()
 
     if RUN_SYNC_TO_AB:
-        with get_actual_client() as actual_client:
-            actual_client.download_budget()
-            actual_count = sync_to_ab(actual_client, mapping_list)
-            logging.info(f"Synced {actual_count} accounts to Actual Budget.")
+        if actual_client is None:
+            actual_client = get_actual_client()
+        actual_client.download_budget()
+        actual_count = sync_to_ab(actual_client, mapping_list)
+        logging.info(f"Synced {actual_count} accounts to Actual Budget.")
 
     if RUN_SYNC_TO_YNAB:
         ynab_count = sync_to_ynab(mapping_list)
         logging.info(f"Synced {ynab_count} accounts to YNAB.")
 
     logging.info(f"Sync completed. Actual count: {actual_count}, YNAB count: {ynab_count}")
+    return actual_client
+
+
+# Create a single Actual client if needed
+actual_client = get_actual_client() if RUN_SYNC_TO_AB else None
+
+# Create and expose the Flask application for WSGI
+application = create_application(actual_client)
 
 
 if __name__ == "__main__":

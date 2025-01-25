@@ -3,7 +3,8 @@ import logging
 from modules.account_fetcher import get_akahu_balance, get_ynab_balance
 from modules.account_mapper import load_existing_mapping, save_mapping
 from modules.transaction_handler import clean_txn_for_ynab, create_adjustment_txn_ynab, get_all_akahu, handle_tracking_account_actual, load_transactions_into_actual, load_transactions_into_ynab
-from modules.config import RUN_SYNC_TO_AB, RUN_SYNC_TO_YNAB, YNAB_ENDPOINT, YNAB_HEADERS, AKAHU_ENDPOINT, AKAHU_HEADERS
+from modules.config import RUN_SYNC_TO_AB, RUN_SYNC_TO_YNAB, YNAB_ENDPOINT, YNAB_HEADERS, AKAHU_ENDPOINT, AKAHU_HEADERS, FORCE_REFRESH, DEBUG_SYNC
+from actual.protobuf_models import SyncRequest
 
 def update_mapping_timestamps(successful_ab_syncs=None, successful_ynab_syncs=None, mapping_file="akahu_budget_mapping.json"):
     """Update sync timestamps for multiple accounts in a single operation."""
@@ -65,16 +66,30 @@ def sync_to_ynab(mapping_list):
             # Update the mapping with the latest balance
             mapping_entry['akahu_balance'] = akahu_balance
             
-            # Get YNAB balance in milliunits (YNAB uses milliunits internally)
-            ynab_balance = get_ynab_balance(ynab_budget_id, ynab_account_id)
+            # Get balances (YNAB uses milliunits internally)
+            ynab_balance_milliunits = get_ynab_balance(ynab_budget_id, ynab_account_id)
+            akahu_balance = get_akahu_balance(
+                akahu_account_id,
+                AKAHU_ENDPOINT,
+                AKAHU_HEADERS
+            )
+            
+            # Convert YNAB milliunits to dollars for comparison
+            ynab_balance_dollars = ynab_balance_milliunits / 1000
+            
+            # Log balance comparison
+            from modules.transaction_handler import log_balance_comparison
+            log_balance_comparison('Akahu', akahu_balance, 'YNAB', ynab_balance_dollars)
+            
+            # Convert Akahu balance to milliunits for YNAB
             akahu_balance_milliunits = int(akahu_balance * 1000)
 
-            if ynab_balance != akahu_balance_milliunits:
+            if ynab_balance_milliunits != akahu_balance_milliunits:
                 create_adjustment_txn_ynab(
                     ynab_budget_id,
                     ynab_account_id,
                     akahu_balance_milliunits,
-                    ynab_balance,
+                    ynab_balance_milliunits,
                     YNAB_ENDPOINT,
                     YNAB_HEADERS
                 )
@@ -112,6 +127,16 @@ def sync_to_ynab(mapping_list):
 
 def sync_to_ab(actual, mapping_list):
     """Sync transactions from Akahu to Actual Budget."""
+    # Force a complete refresh of the budget at the start
+    if FORCE_REFRESH:
+        logging.info("Force refresh requested - closing session and downloading fresh budget...")
+        if hasattr(actual, '_session') and actual._session:
+            actual._session.close()
+            actual._session = None
+        actual.download_budget()  # Force a fresh download
+        actual.sync()  # Sync with server
+        logging.info("Budget refresh complete")
+
     successful_ab_syncs = set()
     transactions_uploaded = 0
 
@@ -150,7 +175,6 @@ def sync_to_ab(actual, mapping_list):
                 logging.error(f"Could not get balance for tracking account {mapping_entry['akahu_name']}")
                 continue
                 
-            logging.info(f"Got balance for {mapping_entry['akahu_name']}: {akahu_balance}")
             mapping_entry['akahu_balance'] = akahu_balance
             transactions_uploaded += handle_tracking_account_actual(mapping_entry, actual) # Note either 1 or 0 returned
             transactions_processed = True
@@ -174,10 +198,29 @@ def sync_to_ab(actual, mapping_list):
         
         # Commit changes if any transactions were processed
         if transactions_processed:
-            logging.info("Finished processing transactions, about to commit...")
+            if DEBUG_SYNC:
+                logging.info("Finished processing transactions, about to commit...")
             try:
                 commit_result = actual.commit()
-                logging.info(f"Commit result: {commit_result}")
+                if DEBUG_SYNC:
+                    logging.info(f"Commit result: {commit_result}")
+                
+                # Get sync changes
+                request = SyncRequest({
+                    "fileId": actual._file.file_id,
+                    "groupId": actual._file.group_id,
+                    "keyId": actual._file.encrypt_key_id
+                })
+                request.set_timestamp(client_id=actual._client.client_id, now=actual._client.ts)
+                changes = actual.sync_sync(request)
+                if DEBUG_SYNC:
+                    logging.info(f"Sync changes: {changes.get_messages(actual._master_key)}")
+                    
+                # Get downloaded budget data
+                file_bytes = actual.download_user_file(actual._file.file_id)
+                if DEBUG_SYNC:
+                    logging.info(f"Downloaded budget size: {len(file_bytes)} bytes")
+                
                 actual.download_budget()  # Force refresh after commit
             except Exception as e:
                 logging.error(f"Error during commit: {str(e)}")

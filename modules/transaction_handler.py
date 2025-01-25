@@ -1,12 +1,35 @@
 """Module for handling transaction processing and syncing."""
 from datetime import datetime, timedelta
 import decimal
+import decimal
 import logging
 import pandas as pd
 import requests
 from actual.queries import create_transaction, reconcile_transaction
 
 from modules.account_fetcher import get_akahu_balance, get_actual_balance
+
+def log_balance_comparison(source_name: str, source_balance: float, dest_name: str, dest_balance: float, dest_in_cents: bool = False):
+    """Log a comparison between source and destination balances in a consistent format.
+    
+    Args:
+        source_name: Name of the source system (e.g., 'Akahu')
+        source_balance: Balance from source system (in dollars)
+        dest_name: Name of the destination system (e.g., 'Actual', 'YNAB')
+        dest_balance: Balance from destination system (in cents if dest_in_cents=True)
+        dest_in_cents: Whether destination balance is in cents (default: False)
+    """
+    # Convert source balance to cents for comparison
+    source_cents = int(decimal.Decimal(str(source_balance)) * 100)
+    
+    # Use destination balance as-is if it's already in cents
+    dest_cents = int(dest_balance) if dest_in_cents else int(decimal.Decimal(str(dest_balance)) * 100)
+    
+    # Convert both to dollars for display
+    source_dollars = decimal.Decimal(source_cents) / 100
+    dest_dollars = decimal.Decimal(dest_cents) / 100
+    
+    logging.info(f"Balances (in dollars) - {source_name}: ${source_dollars:,.2f} | {dest_name}: ${dest_dollars:,.2f}")
 
 def get_all_akahu(akahu_account_id, akahu_endpoint, akahu_headers, last_reconciled_at=None):
     """Fetch all transactions from Akahu for a given account, supporting pagination."""
@@ -46,14 +69,13 @@ def get_all_akahu(akahu_account_id, akahu_endpoint, akahu_headers, last_reconcil
 
         num_txn = akahu_txn.shape[0]
         total_txn += num_txn
-        logging.info(f"Fetched {num_txn} transactions from Akahu.")
-
         if num_txn == 0 or 'cursor' not in akahu_txn_json or 'next' not in akahu_txn_json['cursor']:
             next_cursor = None
         else:
             next_cursor = akahu_txn_json['cursor']['next']
 
-    logging.info(f"Finished reading {total_txn} transactions from Akahu.")
+    if total_txn > 0:
+        logging.info(f"Fetched {total_txn} transactions from Akahu.")
     return res
 
 def load_transactions_into_actual(transactions, mapping_entry, actual):
@@ -108,35 +130,40 @@ def handle_tracking_account_actual(mapping_entry, actual):
     akahu_account_name = mapping_entry['akahu_name']
 
     try:
-        logging.info(f"Handling tracking account: {akahu_account_name} (Akahu ID: {akahu_account_id})")
-        akahu_balance = round(mapping_entry['akahu_balance'] * 100)
-        actual_balance = get_actual_balance(actual, actual_account_id)
+        # Get balances
+        akahu_balance_dollars = mapping_entry['akahu_balance']
+        actual_balance_cents = get_actual_balance(actual, actual_account_id)
+        
+        # Log balance comparison
+        log_balance_comparison('Akahu', akahu_balance_dollars, 'Actual', actual_balance_cents, dest_in_cents=True)
+        
+        # Convert Akahu balance to cents for comparison
+        akahu_balance_cents = int(decimal.Decimal(str(akahu_balance_dollars)) * 100)
 
-        if akahu_balance != actual_balance:
-            adjustment_amount = decimal.Decimal(akahu_balance - actual_balance)
-            adjustment_amount = adjustment_amount.quantize(decimal.Decimal("0.0001"))
+        if akahu_balance_cents != actual_balance_cents:
+            # Calculate adjustment in dollars since Actual expects dollars
+            adjustment_dollars = (akahu_balance_cents - actual_balance_cents) / 100
 
             transaction_date = datetime.utcnow().date()
             payee_name = "Balance Adjustment"
-            notes = f"Adjusted from ${actual_balance/100:,.2f} to ${akahu_balance/100:,.2f} to reconcile tracking account. (Both values in cents: {actual_balance} to {akahu_balance})"
+            notes = f"Adjusted from ${decimal.Decimal(actual_balance_cents)/100:,.2f} to ${decimal.Decimal(akahu_balance_cents)/100:,.2f} to reconcile tracking account"
 
             # Use the imported create_transaction function with the session directly
+            # Note: Actual expects amounts in cents
             create_transaction(
                 actual.session,
                 date=transaction_date,
                 account=actual_account_id,
                 payee=payee_name,
                 notes=notes,
-                amount=adjustment_amount,
+                amount=adjustment_dollars,  # Actual expects dollars
                 imported_id=f"adjustment_{datetime.utcnow().isoformat()}",
                 cleared=True,
                 imported_payee=payee_name
             )
-            logging.info(f"Created balance adjustment transaction for {akahu_account_name}")
+            logging.info(f"Created balance adjustment transaction of ${adjustment_dollars:,.2f}")
             return 1
-        else:
-            logging.info(f"No balance adjustment needed for {akahu_account_name}")
-            return 0
+        return 0
 
     except Exception as e:
         logging.error(f"Error handling tracking account {akahu_account_name}: {str(e)}")
@@ -240,9 +267,10 @@ def create_adjustment_txn_ynab(ynab_budget_id, ynab_account_id, akahu_balance, y
             "transaction": {
                 "account_id": ynab_account_id,
                 "date": datetime.now().strftime("%Y-%m-%d"),
-                "amount": balance_difference,
+                "amount": int(balance_difference * 1000),  # Convert to milliunits for YNAB
                 "payee_name": "Balance Adjustment",
                 "memo": f"Adjusted from ${ynab_balance/1000:.2f} to ${akahu_balance/1000:.2f} based on retrieved balance",
+                "flag_color": "red",
                 "cleared": "cleared",
                 "approved": True
             }
@@ -250,7 +278,7 @@ def create_adjustment_txn_ynab(ynab_budget_id, ynab_account_id, akahu_balance, y
         
         response = requests.post(uri, headers=ynab_headers, json=transaction)
         response.raise_for_status()
-        logging.info(f"Created balance adjustment transaction for {balance_difference}")
+        logging.info(f"Created YNAB balance adjustment transaction of ${balance_difference:,.2f}")
         
     except requests.exceptions.RequestException as e:
         logging.error(f"Failed to create balance adjustment transaction: {e}")

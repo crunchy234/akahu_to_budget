@@ -35,7 +35,12 @@ AKAHU_HEADERS = {
 }
 
 # Set to false if you don't have a YNAB account, or otherwise want to dsable updating YNAB
-RUN_SYNC_TO_YNAB = True 
+RUN_SYNC_TO_YNAB = True
 # Set to false if you don't have an Actual Budget account, or otherwise want to dsable updating AB
 RUN_SYNC_TO_AB = True
+# Set to true to force a budget refresh before and after processing tracking accounts
+FORCE_REFRESH = False
+
+# Set to true for additional sync-related debug logging
+DEBUG_SYNC = False
 

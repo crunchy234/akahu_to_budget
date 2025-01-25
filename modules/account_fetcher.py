@@ -104,14 +104,14 @@ def get_akahu_balance(akahu_account_id, akahu_endpoint, akahu_headers):
         account_data = response.json()
         item = account_data.get('item', {})
         balance = item.get('balance', {}).get('current')
-        logging.info(f"Extracted balance: {balance}")
         return balance
     except Exception as e:
         logging.error(f"Error fetching balance for account {akahu_account_id}: {e}")
         raise  
 
 def get_actual_balance(actual, actual_account_id):
-    """Fetch the balance for an Actual Budget account."""
+    """Fetch the balance for an Actual Budget account.
+    Returns balance in cents for consistency with other systems."""
     try:
         with actual.session as session:
             account = get_account(session, actual_account_id)
@@ -119,8 +119,8 @@ def get_actual_balance(actual, actual_account_id):
                 logging.error(f"Account '{actual_account_id}' not found.")
                 return None
 
-            total_balance = account.balance
-            logging.info(f"Balance fetched for Actual account '{actual_account_id}': {total_balance}")
+            # Convert from dollars to cents since Actual stores balances in dollars
+            total_balance = int(account.balance * 100)
             return total_balance
     except Exception as e:
         logging.error(f"Failed to fetch balance for Actual account ID {actual_account_id}: {e}")

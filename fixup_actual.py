@@ -2,8 +2,13 @@ import os
 from dotenv import load_dotenv
 import logging
 from actual import Actual
-from actual.queries import get_transactions
+from actual.queries import get_transactions, get_accounts, create_transaction
 import traceback
+from datetime import datetime
+import decimal
+import json
+from modules.account_fetcher import get_akahu_balance
+from modules.config import AKAHU_ENDPOINT, AKAHU_HEADERS
 
 # Load environment variables from .env file
 load_dotenv()
@@ -19,19 +24,79 @@ ENVs = {
     "ACTUAL_ENCRYPTION_KEY": os.getenv("ACTUAL_ENCRYPTION_KEY"),
 }
 
-# Ensure all necessary settings are present
-missing_keys = [key for key, value in ENVs.items() if not value]
-if missing_keys:
-    logging.error(f"Missing required environment variables: {', '.join(missing_keys)}")
-    exit(1)
+def load_mapping():
+    """Load the account mapping file."""
+    with open('akahu_budget_mapping.json', 'r') as f:
+        return json.load(f)
 
-logging.info("About to attempt Actual connection with:")
-logging.info(f"Base URL: {ENVs['ACTUAL_SERVER_URL']}")
-logging.info(f"Sync ID: {ENVs['ACTUAL_SYNC_ID']}")
-# Don't log passwords!
+def fix_account_balances(actual, mapping_data):
+    """Fix balances for all tracking accounts."""
+    accounts = get_accounts(actual.session)
+    mapping = mapping_data.get('mapping', {})
+    
+    for account in accounts:
+        if account.closed:
+            continue
+            
+        # Find corresponding mapping entry
+        mapping_entry = None
+        for akahu_id, entry in mapping.items():
+            if entry.get('actual_account_id') == account.id:
+                mapping_entry = entry
+                mapping_entry['akahu_id'] = akahu_id
+                break
+                
+        if not mapping_entry or mapping_entry.get('account_type') != 'Tracking':
+            continue
+            
+        logging.info(f"\nProcessing account: {account.name}")
+        
+        # Get balances
+        actual_balance_cents = account.balance
+        akahu_balance = get_akahu_balance(
+            mapping_entry['akahu_id'],
+            AKAHU_ENDPOINT,
+            AKAHU_HEADERS
+        )
+        
+        if akahu_balance is None:
+            logging.error(f"Could not get Akahu balance for {account.name}")
+            continue
+            
+        # Convert Akahu balance to cents
+        akahu_balance_cents = int(decimal.Decimal(str(akahu_balance)) * 100)
+        
+        logging.info(f"Actual balance: ${actual_balance_cents/100:,.2f}")
+        logging.info(f"Akahu balance: ${akahu_balance_cents/100:,.2f}")
+        
+        if akahu_balance_cents != actual_balance_cents:
+            # Calculate adjustment
+            adjustment_cents = akahu_balance_cents - actual_balance_cents
+            
+            transaction_date = datetime.utcnow().date()
+            payee_name = "Balance Adjustment (Fixup)"
+            notes = f"Adjusted from ${actual_balance_cents/100:,.2f} to ${akahu_balance_cents/100:,.2f}"
+            
+            create_transaction(
+                actual.session,
+                date=transaction_date,
+                account=account.id,
+                payee=payee_name,
+                notes=notes,
+                amount=adjustment_cents,
+                imported_id=f"fixup_{datetime.utcnow().isoformat()}",
+                cleared=True,
+                imported_payee=payee_name
+            )
+            logging.info(f"Created adjustment of ${adjustment_cents/100:,.2f}")
+        else:
+            logging.info("No adjustment needed")
 
 try:
-    # First try just making a connection
+    # Load mapping data
+    mapping_data = load_mapping()
+    
+    # Connect to Actual
     with Actual(
         base_url=ENVs['ACTUAL_SERVER_URL'],
         password=ENVs['ACTUAL_PASSWORD'],
@@ -40,30 +105,21 @@ try:
     ) as actual:
         logging.info("Successfully connected to Actual")
         
-        # Try downloading the budget
-        logging.info("Attempting to download budget...")
+        # Download budget
+        logging.info("Downloading budget...")
         actual.download_budget()
-        logging.info("Successfully downloaded budget")
-
-        # Fetch transactions and log details
-        logging.info("Attempting to fetch transactions...")
-        transactions = get_transactions(actual.session)
-        logging.info(f"Successfully fetched {len(transactions)} transactions")
         
-        # Log a few transactions for verification
-        for t in transactions[:5]:  # Just show first 5 for testing
-            account_name = t.account.name if t.account else "Unknown Account"
-            category = t.category.name if t.category else "Unknown Category"
-            logging.info(f"{t.date} - {account_name} - {t.notes} - {t.amount} - {category}")
+        # Fix balances
+        fix_account_balances(actual, mapping_data)
+        
+        # Commit changes
+        logging.info("\nCommitting changes...")
+        actual.commit()
+        
+        logging.info("Done!")
 
 except Exception as e:
-    logging.error(f"Failed to connect to Actual server or process transactions: {str(e)}")
+    logging.error(f"Failed to process: {str(e)}")
     logging.error(f"Error type: {type(e)}")
     logging.error(f"Full traceback: {traceback.format_exc()}")
-    
-    # Additional error information if it's a request error
-    if hasattr(e, 'response') and e.response is not None:
-        logging.debug(f"Response status: {e.response.status_code}")
-        logging.debug(f"Response headers: {dict(e.response.headers)}")
-        logging.debug(f"Response content: {e.response.text[:500]}")
     raise
