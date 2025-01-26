@@ -4,14 +4,19 @@ import logging
 from flask import Flask, request, jsonify, redirect, url_for
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
-# from cryptography.exceptions import InvalidSignature # Currently unused
 import pandas as pd
 
 from modules.account_mapper import load_existing_mapping
-from modules.config import RUN_SYNC_TO_AB, RUN_SYNC_TO_YNAB
+from modules.config import RUN_SYNC_TO_AB, RUN_SYNC_TO_YNAB, YNAB_ENDPOINT, YNAB_HEADERS
 from modules.sync_handler import sync_to_ab, sync_to_ynab
 from modules.sync_status import generate_sync_report
-from modules.transaction_handler import load_transactions_into_actual
+from modules.transaction_handler import (
+    load_transactions_into_actual,
+    clean_txn_for_ynab,
+    load_transactions_into_ynab,
+    create_adjustment_txn_ynab,
+)
+from modules.account_fetcher import get_akahu_balance, get_ynab_balance
 from modules.transaction_tester import run_transaction_tests
 
 def verify_signature(public_key: str, signature: str, request_body: bytes) -> None:
@@ -76,10 +81,9 @@ def create_flask_app(actual_client, mapping_list, env_vars):
 
     @app.route('/receive-transaction', methods=['POST'])
     def receive_transaction():
-        """Handle incoming webhook events from Akahu."""
-        if not RUN_SYNC_TO_AB:
-            raise NotImplementedError("Webhook sync to YNAB not implemented")
-
+        """Handle incoming webhook events from Akahu.
+        Note: This endpoint is RFU (Reserved For Future Use) pending security audit and proper
+        webhook authentication implementation."""
         signature = request.headers.get("X-Akahu-Signature")
         verify_signature(env_vars['AKAHU_PUBLIC_KEY'], signature, request.data)
 
@@ -90,16 +94,52 @@ def create_flask_app(actual_client, mapping_list, env_vars):
         transactions = data["item"]
         akahu_account_id = transactions['account']['_id']
         mapping_entry = mapping_list[akahu_account_id]
-            
-        if mapping_entry.get('actual_do_not_map'):
-            return jsonify({"status": "skipped - do not map"}), 200
+        
+        # Process for Actual Budget if enabled
+        if RUN_SYNC_TO_AB and not mapping_entry.get('actual_do_not_map'):
+            actual_client.download_budget()
+            load_transactions_into_actual(
+                pd.DataFrame([transactions]),
+                mapping_entry,
+                actual_client
+            )
 
-        actual_client.download_budget()
-        load_transactions_into_actual(
-            pd.DataFrame([transactions]),
-            mapping_entry,
-            actual_client
-        )
+        # Process for YNAB if enabled
+        if RUN_SYNC_TO_YNAB and not mapping_entry.get('ynab_do_not_map'):
+            if mapping_entry.get('account_type') == 'Tracking':
+                # For tracking accounts, create balance adjustment
+                akahu_balance = get_akahu_balance(
+                    akahu_account_id,
+                    env_vars['akahu_endpoint'],
+                    env_vars['akahu_headers']
+                )
+                if akahu_balance is not None:
+                    akahu_balance_milliunits = int(akahu_balance * 1000)
+                    ynab_balance_milliunits = get_ynab_balance(
+                        mapping_entry['ynab_budget_id'],
+                        mapping_entry['ynab_account_id']
+                    )
+                    if ynab_balance_milliunits != akahu_balance_milliunits:
+                        create_adjustment_txn_ynab(
+                            mapping_entry['ynab_budget_id'],
+                            mapping_entry['ynab_account_id'],
+                            akahu_balance_milliunits,
+                            ynab_balance_milliunits,
+                            YNAB_ENDPOINT,
+                            YNAB_HEADERS
+                        )
+            else:
+                # For regular accounts, process the transaction
+                df = pd.DataFrame([transactions])
+                cleaned_txn = clean_txn_for_ynab(df, mapping_entry['ynab_account_id'])
+                load_transactions_into_ynab(
+                    cleaned_txn,
+                    mapping_entry['ynab_budget_id'],
+                    mapping_entry['ynab_account_id'],
+                    YNAB_ENDPOINT,
+                    YNAB_HEADERS
+                )
+
         return jsonify({"status": "success"}), 200
 
     return app

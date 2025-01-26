@@ -267,7 +267,7 @@ def create_adjustment_txn_ynab(ynab_budget_id, ynab_account_id, akahu_balance, y
             "transaction": {
                 "account_id": ynab_account_id,
                 "date": datetime.now().strftime("%Y-%m-%d"),
-                "amount": int(balance_difference * 1000),  # Convert to milliunits for YNAB
+                "amount": int(balance_difference),  # Already in milliunits for YNAB
                 "payee_name": "Balance Adjustment",
                 "memo": f"Adjusted from ${ynab_balance/1000:.2f} to ${akahu_balance/1000:.2f} based on retrieved balance",
                 "flag_color": "red",

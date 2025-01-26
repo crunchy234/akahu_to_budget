@@ -58,7 +58,7 @@ def create_application(actual_client=None):
         actual_client = get_actual_client()
     
     app = create_flask_app(actual_client, mapping_list, {
-        'AKAHU_PUBLIC_KEY': ENVs['AKAHU_PUBLIC_KEY'],
+        'AKAHU_PUBLIC_KEY': os.getenv('AKAHU_PUBLIC_KEY', ''),  # RFU (Reserved For Future Use)
         'akahu_endpoint': AKAHU_ENDPOINT,
         'akahu_headers': AKAHU_HEADERS
     })

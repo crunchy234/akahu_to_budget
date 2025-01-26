@@ -77,11 +77,10 @@ def main():
         # Initialize Actual if syncing to AB
         # Create Flask app with Actual client
         app = create_flask_app(actual, mapping_list, {
-            'AKAHU_PUBLIC_KEY': ENVs['AKAHU_PUBLIC_KEY'],
+            'AKAHU_PUBLIC_KEY': os.getenv('AKAHU_PUBLIC_KEY', ''),  # RFU (Reserved For Future Use)
             'akahu_endpoint': AKAHU_ENDPOINT,
             'akahu_headers': AKAHU_HEADERS
         })
-
 
         development_mode = os.getenv('FLASK_ENV') == 'development'
         app.run(host="0.0.0.0", port=5000, debug=development_mode)

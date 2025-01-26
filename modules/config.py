@@ -1,5 +1,6 @@
 """Module for handling configuration and environment variables."""
 import os
+import logging
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -12,7 +13,6 @@ required_envs = [
     'ACTUAL_SYNC_ID',
     'AKAHU_USER_TOKEN',
     'AKAHU_APP_TOKEN',
-    'AKAHU_PUBLIC_KEY',
     "YNAB_BEARER_TOKEN",
 ]
 
@@ -34,13 +34,13 @@ AKAHU_HEADERS = {
     "X-Akahu-ID": ENVs['AKAHU_APP_TOKEN']
 }
 
-# Set to false if you don't have a YNAB account, or otherwise want to dsable updating YNAB
-RUN_SYNC_TO_YNAB = True
-# Set to false if you don't have an Actual Budget account, or otherwise want to dsable updating AB
-RUN_SYNC_TO_AB = True
-# Set to true to force a budget refresh before and after processing tracking accounts
-FORCE_REFRESH = False
+# Load boolean flags from environment variables with defaults
+RUN_SYNC_TO_YNAB = os.getenv('RUN_SYNC_TO_YNAB', 'true').lower() == 'true'
+RUN_SYNC_TO_AB = os.getenv('RUN_SYNC_TO_AB', 'true').lower() == 'true'
+FORCE_REFRESH = os.getenv('FORCE_REFRESH', 'false').lower() == 'true'
+DEBUG_SYNC = os.getenv('DEBUG_SYNC', 'false').lower() == 'true'
 
-# Set to true for additional sync-related debug logging
-DEBUG_SYNC = False
-
+# Validate that at least one sync target is enabled
+if not RUN_SYNC_TO_YNAB and not RUN_SYNC_TO_AB:
+    logging.error("Environment variable RUN_SYNC_TO_YNAB or RUN_SYNC_TO_AB must be True.")
+    raise EnvironmentError("Environment variable RUN_SYNC_TO_YNAB or RUN_SYNC_TO_AB must be True.")
