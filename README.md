@@ -118,7 +118,7 @@ You will likely never need to run this again unless you want to change the mappi
 
 # Running the script
 
-Now run `akahu_to_budget.py`
+Now run `python akahu_to_budget.py`
 
 This is the workhorse.  It connects to Akahu, gets the transactions, and then syncs them to Actual Budget and/or YNAB.
 
