@@ -5,9 +5,46 @@ import decimal
 import logging
 import pandas as pd
 import requests
-from actual.queries import create_transaction, reconcile_transaction
+from actual.queries import (
+    create_transaction, get_ruleset, reconcile_transaction,
+    get_categories, get_payees
+)
+from sqlalchemy import text
+from typing import Dict, Optional
 
 from modules.account_fetcher import get_akahu_balance, get_actual_balance
+
+def get_cached_names(actual) -> tuple[Dict[str, str], Dict[str, str]]:
+    """Get cached category and payee names.
+    
+    Args:
+        actual: Actual instance with active session
+        
+    Returns:
+        Tuple of (category_names, payee_names) dictionaries mapping IDs to names
+        
+    Raises:
+        RuntimeError: If there is any error accessing the Actual Budget database
+    """
+    try:
+        # Get all categories using the API
+        categories = get_categories(actual.session)
+        category_names = {cat.id: cat.name for cat in categories} if categories else {}
+        category_names[None] = "Uncategorized"
+        if not categories:
+            logging.info("No categories found in Actual Budget - this is normal for a new budget")
+        
+        # Get all payees using the API
+        payees = get_payees(actual.session)
+        payee_names = {payee.id: payee.name for payee in payees} if payees else {}
+        if not payees:
+            logging.info("No payees found in Actual Budget - this is normal for a new budget")
+        
+        return category_names, payee_names
+        
+    except Exception as e:
+        logging.error(f"Error accessing Actual Budget database - aborting transaction processing: {str(e)}")
+        raise RuntimeError(f"Failed to access Actual Budget database: {str(e)}") from None
 
 def log_balance_comparison(source_name: str, source_balance: float, dest_name: str, dest_balance: float, dest_in_cents: bool = False):
     """Log a comparison between source and destination balances in a consistent format.
@@ -86,6 +123,18 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
 
     actual_account_id = mapping_entry['actual_account_id']
     imported_transactions = []
+    
+    # Get cached names for rule changes - this will raise RuntimeError if it fails
+    category_names, payee_names = get_cached_names(actual)
+    
+    # Get ruleset - no rules is a valid state for new budgets
+    try:
+        ruleset = get_ruleset(actual.session)
+        if ruleset is None:
+            logging.info("No ruleset found in Actual Budget - this is normal for a new budget")
+    except Exception as e:
+        logging.error(f"Database error while getting ruleset - aborting transaction processing: {str(e)}")
+        raise RuntimeError(f"Failed to access Actual Budget database: {str(e)}") from None
 
     for _, txn in transactions.iterrows():
         transaction_date = txn.get("date")
@@ -110,6 +159,37 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
                 imported_payee=payee_name,
                 already_matched=imported_transactions
             )
+            
+            if ruleset is not None:
+                # Store transaction state before running rules
+                pre_rules_state = vars(reconciled_transaction).copy()
+                ruleset.run(reconciled_transaction)
+                
+                # Compare states to see if rules modified the transaction
+                post_rules_state = vars(reconciled_transaction)
+                changes = []
+                for key, value in post_rules_state.items():
+                    if key in pre_rules_state and pre_rules_state[key] != value:
+                        # Format category changes
+                        if key == 'category_id':
+                            old_name = category_names.get(pre_rules_state[key], "Unknown")
+                            new_name = category_names.get(value, "Unknown")
+                            changes.append(f"category: {old_name} -> {new_name}")
+                        # Format payee changes
+                        elif key == 'payee_id':
+                            old_name = payee_names.get(pre_rules_state[key], "Unknown")
+                            new_name = payee_names.get(value, "Unknown")
+                            changes.append(f"payee: {old_name} -> {new_name}")
+                        # Skip internal fields
+                        elif not key.startswith('_'):
+                            changes.append(f"{key}: {pre_rules_state[key]} -> {value}")
+                if changes:
+                    logging.info(f"Rules modified transaction {imported_id}:")
+                    for change in changes:
+                        logging.info(f"  {change}")
+                else:
+                    logging.debug(f"Rules did not modify transaction {imported_id}")
+
         except Exception as e:
             logging.error(f"Failed to reconcile transaction {imported_id} into Actual for account {actual_account_id}: {str(e)}")
             raise RuntimeError(f"Failed to process transaction into Actual: {str(e)}") from None
@@ -117,10 +197,21 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
         if reconciled_transaction.changed():
             imported_transactions.append(reconciled_transaction)
             logging.info(f"Created new transaction on {parsed_date} at {payee_name} for ${amount}")
+            if notes != payee_name:
+                logging.debug(f"Transaction notes: {notes}")
         else:
-            logging.info(f"Transaction already exists on {parsed_date} at {payee_name} for ${amount}")
+            logging.debug(f"Transaction already exists on {parsed_date} at {payee_name} for ${amount}")
 
     mapping_entry['actual_synced_datetime'] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    # Commit all changes to Actual
+    try:
+        actual.commit()
+        logging.info("Successfully committed changes to Actual Budget")
+    except Exception as e:
+        logging.error(f"Failed to commit changes to Actual Budget: {str(e)}")
+        raise RuntimeError(f"Failed to commit changes to Actual: {str(e)}") from None
+    
     return len(imported_transactions)
 
 def handle_tracking_account_actual(mapping_entry, actual):
@@ -161,8 +252,15 @@ def handle_tracking_account_actual(mapping_entry, actual):
                 cleared=True,
                 imported_payee=payee_name
             )
-            logging.info(f"Created balance adjustment transaction of ${adjustment_dollars:,.2f}")
-            return 1
+            
+            # Commit the adjustment transaction
+            try:
+                actual.commit()
+                logging.info(f"Created and committed balance adjustment transaction of ${adjustment_dollars:,.2f}")
+                return 1
+            except Exception as e:
+                logging.error(f"Failed to commit balance adjustment to Actual Budget: {str(e)}")
+                raise RuntimeError(f"Failed to commit balance adjustment to Actual: {str(e)}") from None
         return 0
 
     except Exception as e:
