@@ -118,15 +118,21 @@ You will likely never need to run this again unless you want to change the mappi
 
 # Running the script
 
-Now run `python akahu_to_budget.py`
+Run the script using:
+```bash
+# For one-time sync (recommended for most users):
+python flask_app.py --sync
 
-This is the workhorse.  It connects to Akahu, gets the transactions, and then syncs them to Actual Budget and/or YNAB.
+# For running the webhook server:
+python flask_app.py
+```
 
-It's implemented as a Flask app so you can run it locally and it will keep running.  
-The first sync is triggered automatically on startup.  For subsequent syncs you should use the web interface.
+This connects to Akahu, gets the transactions, and syncs them to Actual Budget and/or YNAB.
+
+When running the webhook server, the first sync is triggered automatically on startup. For subsequent syncs, use the web interface at http://localhost:5000/sync.
 There is minimal security, mostly because the webhooks don't take parameters so the worst someone can do is sync your budget prematurely.
 
-You can run the sync by going to http://localhost:5000/sync
+NOTE TO EXISTING USERS: If you're currently using akahu_to_budget.py, it will continue to work but we recommend switching to flask_app.py for improved features and ongoing support.
 
 # Running Tests
 

@@ -1,4 +1,10 @@
 """
+DEPRECATED: Please use flask_app.py instead.
+This script still works but flask_app.py provides additional features:
+- CLI sync support (python flask_app.py --sync)
+- Better error handling
+- Signal handling for graceful shutdown
+
 Script for syncing transactions from Akahu to YNAB and Actual Budget.
 Also provides webhook endpoints for real-time transaction syncing.
 """
@@ -68,6 +74,18 @@ def signal_handler(sig, frame):
 def main():
     """Main entry point for the sync script."""
 
+    print("\n" + "="*80)
+    print("DEPRECATION NOTICE")
+    print("="*80)
+    print("This script (akahu_to_budget.py) is deprecated in favor of flask_app.py")
+    print("While this script still works, flask_app.py provides additional features:")
+    print("- CLI sync support (python flask_app.py --sync)")
+    print("- Better error handling")
+    print("- Signal handling for graceful shutdown")
+    print("="*80 + "\n")
+
+    logging.warning("Using deprecated akahu_to_budget.py - Please switch to flask_app.py")
+
     signal.signal(signal.SIGINT, signal_handler)  # Handle Ctrl+C
     signal.signal(signal.SIGTERM, signal_handler)  # Handle kill
 
@@ -87,3 +105,15 @@ def main():
 
 if __name__ == "__main__":
     main()
+        app = create_flask_app(actual, mapping_list, {
+            'AKAHU_PUBLIC_KEY': os.getenv('AKAHU_PUBLIC_KEY', ''),  # RFU (Reserved For Future Use)
+            'akahu_endpoint': AKAHU_ENDPOINT,
+            'akahu_headers': AKAHU_HEADERS
+        })
+
+        development_mode = os.getenv('FLASK_ENV') == 'development'
+        app.run(host="0.0.0.0", port=5000, debug=development_mode)
+
+if __name__ == "__main__":
+    main()
+

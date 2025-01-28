@@ -153,7 +153,7 @@ def get_all_akahu(
             and "cursor" in akahu_txn_json
             and "next" in akahu_txn_json["cursor"]
         )
-        
+
         if has_more_pages:
             next_cursor = akahu_txn_json["cursor"]["next"]
         else:
@@ -261,15 +261,13 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
 
         if reconciled_transaction.changed():
             imported_transactions.append(reconciled_transaction)
-            logging.info(
-                f"Created new transaction on {parsed_date} at {payee_name} for ${amount}"
-            )
+            txn_details = f"on {parsed_date} at {payee_name} for ${amount}"
+            logging.info(f"Created new transaction {txn_details}")
             if notes != payee_name:
                 logging.debug(f"Transaction notes: {notes}")
         else:
-            logging.debug(
-                f"Transaction already exists on {parsed_date} at {payee_name} for ${amount}"
-            )
+            txn_details = f"on {parsed_date} at {payee_name} for ${amount}"
+            logging.debug(f"Transaction already exists {txn_details}")
 
     mapping_entry["actual_synced_datetime"] = datetime.utcnow().strftime(
         "%Y-%m-%dT%H:%M:%SZ"
@@ -316,7 +314,10 @@ def handle_tracking_account_actual(mapping_entry, actual):
             payee_name = "Balance Adjustment"
             old_balance = f"${decimal.Decimal(actual_balance_cents)/100:,.2f}"
             new_balance = f"${decimal.Decimal(akahu_balance_cents)/100:,.2f}"
-            notes = f"Adjusted from {old_balance} to {new_balance} to reconcile tracking account"
+            notes = (
+                f"Adjusted from {old_balance} to {new_balance} "
+                "to reconcile tracking account"
+            )
 
             # Use the imported create_transaction function with the session directly
             # Note: Actual expects amounts in cents
@@ -457,9 +458,7 @@ def load_transactions_into_ynab(
         logging.info(f"No new transactions loaded to YNAB - {dup_str}")
     else:
         num_txns = len(ynab_response["data"]["transactions"])
-        logging.info(
-            f"Successfully loaded {num_txns} transactions to YNAB - {dup_str}"
-        )
+        logging.info(f"Successfully loaded {num_txns} transactions to YNAB - {dup_str}")
 
     return len(ynab_response["data"]["transactions"])
 
