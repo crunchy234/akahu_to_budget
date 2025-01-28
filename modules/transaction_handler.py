@@ -128,7 +128,8 @@ def get_all_akahu(
             response.raise_for_status()
         except requests.exceptions.RequestException as e:
             logging.error(
-                f"Failed to fetch transactions from Akahu for account {akahu_account_id}: {str(e)}"
+                f"Failed to fetch transactions from Akahu "
+                f"for account {akahu_account_id}: {str(e)}"
             )
             raise RuntimeError(
                 f"Failed to fetch Akahu transactions: {str(e)}"
