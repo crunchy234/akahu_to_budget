@@ -101,10 +101,8 @@ def run_sync():
     logging.info(f"Sync completed. Actual count: {actual_count}, YNAB count: {ynab_count}")
 
 
-# Create and expose the Flask application for WSGI
-application = create_application()
-
-
+# Create and expose the Flask application for WSGI if not running in sync mode
+application = None
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the Flask app or perform direct sync.")
     parser.add_argument("--sync", action="store_true", help="Perform direct sync and exit.")
@@ -113,5 +111,9 @@ if __name__ == "__main__":
     if args.sync:
         run_sync()
     else:
+        application = create_application()
         development_mode = os.getenv('FLASK_ENV') == 'development'
         application.run(host="0.0.0.0", port=5000, debug=development_mode)
+else:
+    # For WSGI deployment, create the application
+    application = create_application()
