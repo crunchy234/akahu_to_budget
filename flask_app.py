@@ -81,12 +81,25 @@ def create_application():
         return app
 
 
-def run_sync():
-    """Run sync operations directly."""
+def run_sync(account_ids=None):
+    """Run sync operations directly.
+    
+    Args:
+        account_ids (list[str], optional): List of Akahu account IDs to sync. If None, all accounts will be synced.
+    """
     logging.info("Starting direct sync...")
     actual_count = ynab_count = 0
 
     _, _, _, mapping_list = load_existing_mapping()
+    
+    if account_ids:
+        # Filter mapping_list to only include specified accounts
+        filtered_mapping = {k: v for k, v in mapping_list.items() if k in account_ids}
+        if not filtered_mapping:
+            logging.warning(f"No matching accounts found for IDs: {account_ids}")
+            return
+        logging.info(f"Syncing specific accounts: {', '.join(account_ids)}")
+        mapping_list = filtered_mapping
 
     with get_actual_client() as actual_client:
         if RUN_SYNC_TO_AB and actual_client:
@@ -106,10 +119,12 @@ application = None
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the Flask app or perform direct sync.")
     parser.add_argument("--sync", action="store_true", help="Perform direct sync and exit.")
+    parser.add_argument("--accounts", help="Comma-separated list of Akahu account IDs to sync (e.g. acc_123,acc_456). If not provided, all accounts will be synced.")
     args = parser.parse_args()
 
     if args.sync:
-        run_sync()
+        account_ids = args.accounts.split(',') if args.accounts else None
+        run_sync(account_ids)
     else:
         application = create_application()
         development_mode = os.getenv('FLASK_ENV') == 'development'

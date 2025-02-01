@@ -202,9 +202,9 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
         cleared = True
 
         try:
-            parsed_date = datetime.strptime(
-                transaction_date.replace(".000", ""), "%Y-%m-%dT%H:%M:%SZ"
-            ).date()
+            # Convert UTC to NZ date
+            nzt_date_str = convert_to_nzt(transaction_date)
+            parsed_date = datetime.strptime(nzt_date_str, "%Y-%m-%d").date()
             reconciled_transaction = reconcile_transaction(
                 actual.session,
                 date=parsed_date,
