@@ -23,6 +23,22 @@ from modules.config import (
 from actual.protobuf_models import SyncRequest
 
 
+def get_account_priority(account_entry):
+    """
+    Determine processing priority for accounts.
+    Returns 0 for On Budget accounts (process first)
+    Returns 1 for Tracking accounts (process second)
+    """
+    account_type = account_entry[1].get("account_type", "On Budget")
+    if account_type == "On Budget":
+        return 0
+    elif account_type == "Tracking":
+        return 1
+    else:
+        logging.warning(f"Unknown account type: {account_type}, treating as Tracking")
+        return 1
+
+
 def update_mapping_timestamps(
     successful_ab_syncs=None,
     successful_ynab_syncs=None,
@@ -60,7 +76,10 @@ def sync_to_ynab(mapping_list):
     successful_syncs = set()
     transactions_uploaded = 0
 
-    for akahu_account_id, mapping_entry in mapping_list.items():
+    # Sort accounts to process on-budget accounts first
+    sorted_accounts = sorted(mapping_list.items(), key=get_account_priority)
+
+    for akahu_account_id, mapping_entry in sorted_accounts:
         ynab_budget_id = mapping_entry.get("ynab_budget_id")
         ynab_account_id = mapping_entry.get("ynab_account_id")
         ynab_account_name = mapping_entry.get("ynab_account_name")
@@ -168,7 +187,10 @@ def sync_to_ab(actual, mapping_list):
     successful_ab_syncs = set()
     transactions_uploaded = 0
 
-    for akahu_account_id, mapping_entry in mapping_list.items():
+    # Sort accounts to process on-budget accounts first
+    sorted_accounts = sorted(mapping_list.items(), key=get_account_priority)
+
+    for akahu_account_id, mapping_entry in sorted_accounts:
         actual_account_id = mapping_entry.get("actual_account_id")
         actual_account_name = mapping_entry.get("actual_account_name")
         akahu_account_name = mapping_entry.get("akahu_name")
