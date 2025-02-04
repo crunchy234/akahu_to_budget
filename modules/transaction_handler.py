@@ -379,8 +379,9 @@ def convert_to_nzt(date_str):
         if date_str is None:
             logging.warning("Input date string is None.")
             return None
-        # Remove milliseconds if present before parsing
-        date_str = date_str.replace(".000Z", "Z")
+        # Remove any milliseconds if present before parsing
+        if "." in date_str:
+            date_str = date_str[:date_str.index(".")] + "Z"
         utc_time = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ")
         nzt_time = utc_time + timedelta(hours=13)
         return nzt_time.strftime("%Y-%m-%d")
