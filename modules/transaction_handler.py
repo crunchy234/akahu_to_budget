@@ -218,6 +218,10 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
                 already_matched=imported_transactions,
             )
 
+            if not reconciled_transaction.changed():
+                logging.debug(f"Transaction already exists, skipping rule application and import.")
+                continue  # Skip to the next transaction
+
             if ruleset is not None:
                 # Store transaction state before running rules
                 pre_rules_state = vars(reconciled_transaction).copy()
@@ -262,12 +266,12 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
         if reconciled_transaction.changed():
             imported_transactions.append(reconciled_transaction)
             txn_details = f"on {parsed_date} at {payee_name} for ${amount}"
-            logging.info(f"Created new transaction {txn_details}")
+            logging.info(f"Imported new transaction {txn_details}")
             if notes != payee_name:
                 logging.debug(f"Transaction notes: {notes}")
         else:
             txn_details = f"on {parsed_date} at {payee_name} for ${amount}"
-            logging.debug(f"Transaction already exists {txn_details}")
+            logging.info(f"Skipped existing transaction {txn_details}")
 
     mapping_entry["actual_synced_datetime"] = datetime.utcnow().strftime(
         "%Y-%m-%dT%H:%M:%SZ"
