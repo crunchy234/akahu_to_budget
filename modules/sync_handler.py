@@ -71,8 +71,14 @@ def update_mapping_timestamps(
     )
 
 
-def sync_to_ynab(mapping_list):
-    """Sync transactions from Akahu to YNAB."""
+def sync_to_ynab(mapping_list, debug_mode=None):
+    """Sync transactions from Akahu to YNAB.
+    
+    Args:
+        mapping_list: Dictionary of account mappings
+        debug_mode: Debug mode setting. 'all' to print all transaction IDs,
+                   or a specific Akahu transaction ID for verbose debugging.
+    """
     successful_syncs = set()
     transactions_uploaded = 0
 
@@ -160,6 +166,7 @@ def sync_to_ynab(mapping_list):
                     mapping_entry["ynab_account_id"],
                     YNAB_ENDPOINT,
                     YNAB_HEADERS,
+                    debug_mode=debug_mode
                 )
                 successful_syncs.add(akahu_account_id)
         else:
@@ -170,8 +177,15 @@ def sync_to_ynab(mapping_list):
     return transactions_uploaded
 
 
-def sync_to_ab(actual, mapping_list):
-    """Sync transactions from Akahu to Actual Budget."""
+def sync_to_ab(actual, mapping_list, debug_mode=None):
+    """Sync transactions from Akahu to Actual Budget.
+    
+    Args:
+        actual: Actual Budget client instance
+        mapping_list: Dictionary of account mappings
+        debug_mode: Debug mode setting. 'all' to print all transaction IDs,
+                   or a specific Akahu transaction ID for verbose debugging.
+    """
     # Force a complete refresh of the budget at the start
     if FORCE_REFRESH:
         logging.info(
@@ -246,7 +260,7 @@ def sync_to_ab(actual, mapping_list):
             if akahu_df is not None and not akahu_df.empty:
                 logging.info("About to load transactions into Actual Budget...")
                 transactions_uploaded += load_transactions_into_actual(
-                    akahu_df, mapping_entry, actual
+                    akahu_df, mapping_entry, actual, debug_mode=debug_mode
                 )
                 transactions_processed = True
                 successful_ab_syncs.add(akahu_account_id)

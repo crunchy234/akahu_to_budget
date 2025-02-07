@@ -11,6 +11,8 @@ from actual.queries import (
     reconcile_transaction,
     get_categories,
     get_payees,
+    get_account,
+    match_transaction,
 )
 from typing import Dict
 
@@ -164,8 +166,16 @@ def get_all_akahu(
     return res
 
 
-def load_transactions_into_actual(transactions, mapping_entry, actual):
-    """Load transactions into Actual Budget using the mapping information."""
+def load_transactions_into_actual(transactions, mapping_entry, actual, debug_mode=None):
+    """Load transactions into Actual Budget using the mapping information.
+    
+    Args:
+        transactions: DataFrame of transactions to load
+        mapping_entry: Dictionary containing mapping information
+        actual: Actual Budget client instance
+        debug_mode: Debug mode setting. 'all' to print all transaction IDs,
+                   or a specific Akahu transaction ID for verbose debugging.
+    """
     if transactions is None or transactions.empty:
         logging.info("No transactions to load into Actual.")
         return
@@ -205,21 +215,95 @@ def load_transactions_into_actual(transactions, mapping_entry, actual):
             # Convert UTC to NZ date
             nzt_date_str = convert_to_nzt(transaction_date)
             parsed_date = datetime.strptime(nzt_date_str, "%Y-%m-%d").date()
-            reconciled_transaction = reconcile_transaction(
-                actual.session,
-                date=parsed_date,
-                account=actual_account_id,
-                payee=payee_name,
-                notes=notes,
-                amount=amount,
-                imported_id=imported_id,
-                cleared=cleared,
-                imported_payee=payee_name,
-                already_matched=imported_transactions,
-            )
+
+            # Debug logging for transaction ID
+            if debug_mode == 'all' or debug_mode == imported_id:
+                txn_details = f"{imported_id} - {payee_name} ${amount}"
+                logging.info(f"Processing transaction: {txn_details}")
+
+            if debug_mode == imported_id:
+                logging.info(f"\nDEBUG: Verbose logging for transaction {imported_id}")
+                logging.info(f"Date: {parsed_date}")
+                logging.info(f"Payee: {payee_name}")
+                logging.info(f"Amount: ${amount}")
+                logging.info(f"Notes: {notes}")
+                logging.info("Attempting to reconcile transaction...")
+
+            # If we're debugging this specific transaction, use lower level functions
+            # to provide more detailed debugging information about what's happening
+            if debug_mode == imported_id:
+                account = get_account(actual.session, actual_account_id)
+                match = match_transaction(
+                    actual.session,
+                    parsed_date,
+                    account,
+                    payee_name,
+                    amount,
+                    imported_id,
+                    imported_transactions
+                )
+
+                logging.info("DEBUG: Looking for matching transaction...")
+                if match:
+                    logging.info("DEBUG: Found matching transaction:")
+                    logging.info(f"  * id: {match.id}")
+                    logging.info(f"  * date: {match.date}")
+                    logging.info(f"  * payee_id: {match.payee_id}")
+                    logging.info(f"  * payee: {payee_names.get(match.payee_id, 'Unknown')}")
+                    logging.info(f"  * amount: ${match.amount}")
+                    logging.info(f"  * notes: {match.notes}")
+                    logging.info("Attempting to update fields...")
+
+                    # Store original state for debugging
+                    orig_state = {
+                        'notes': match.notes,
+                        'date': match.date,
+                        'payee_id': match.payee_id
+                    }
+                    
+                    # Don't update fields for matches - we just want to detect duplicates
+                    logging.info("DEBUG: Found duplicate - not updating fields")
+                    reconciled_transaction = match
+                else:
+                    logging.info("DEBUG: No matching transaction found, will create new")
+                    reconciled_transaction = create_transaction(
+                        actual.session,
+                        parsed_date,
+                        account,
+                        payee_name,
+                        notes,
+                        None,  # category
+                        amount,
+                        imported_id,
+                        cleared,
+                        payee_name  # imported_payee
+                    )
+            else:
+                # Normal non-debug path using reconcile_transaction
+                # Normal non-debug path using reconcile_transaction
+                # Set update_existing=False since we want to detect duplicates but not update them
+                reconciled_transaction = reconcile_transaction(
+                    actual.session,
+                    date=parsed_date,
+                    account=actual_account_id,
+                    payee=payee_name,
+                    notes=notes,
+                    amount=amount,
+                    imported_id=imported_id,
+                    cleared=cleared,
+                    imported_payee=payee_name,
+                    already_matched=imported_transactions,
+                    update_existing=False  # Don't update fields for matches
+                )
 
             if not reconciled_transaction.changed():
-                logging.debug(f"Transaction already exists, skipping rule application and import.")
+                txn_details = f"{imported_id} - {payee_name} ${amount}"
+                if debug_mode == imported_id:
+                    logging.info("DEBUG: Transaction was not modified")
+                elif debug_mode == 'all':
+                    logging.info(f"Skipped duplicate transaction: {txn_details}")
+                else:
+                    logging.debug(f"Transaction already exists, skipping rule application and import.")
                 continue  # Skip to the next transaction
 
             if ruleset is not None:
@@ -430,11 +514,27 @@ def get_ynab_transactions(ynab_budget_id, ynab_endpoint, ynab_headers):
 
 
 def load_transactions_into_ynab(
-    akahu_txn, ynab_budget_id, ynab_account_id, ynab_endpoint, ynab_headers
+    akahu_txn, ynab_budget_id, ynab_account_id, ynab_endpoint, ynab_headers,
+    debug_mode=None
 ):
-    """Save transactions from Akahu to YNAB."""
+    """Save transactions from Akahu to YNAB.
+    
+    Args:
+        akahu_txn: DataFrame of transactions to load
+        ynab_budget_id: YNAB budget ID
+        ynab_account_id: YNAB account ID
+        ynab_endpoint: YNAB API endpoint
+        ynab_headers: YNAB API headers
+        debug_mode: Debug mode setting. 'all' to print all transaction IDs,
+                   or a specific Akahu transaction ID for verbose debugging.
+    """
     uri = f"{ynab_endpoint}budgets/{ynab_budget_id}/transactions"
     transactions_list = akahu_txn.to_dict(orient="records")
+
+    # Debug logging for transactions
+    if debug_mode == 'all':
+        for txn in transactions_list:
+            logging.info(f"Processing transaction: {txn['import_id']} - {txn['payee_name']} ${float(txn['amount'])/1000:.2f}")
 
     ynab_api_payload = {"transactions": transactions_list}
 
@@ -449,21 +549,30 @@ def load_transactions_into_ynab(
         raise RuntimeError(f"Failed to load transactions into YNAB: {str(e)}") from None
 
     ynab_response = response.json()
-    if (
-        "duplicate_import_ids" in ynab_response["data"]
-        and len(ynab_response["data"]["duplicate_import_ids"]) > 0
-    ):
-        dup_str = (
-            f"Skipped {len(ynab_response['data']['duplicate_import_ids'])} duplicates"
-        )
+    duplicates = ynab_response["data"].get("duplicate_import_ids", [])
+    if duplicates:
+        dup_count = len(duplicates)
+        dup_str = f"Skipped {dup_count} duplicates"
+        
+        if debug_mode == 'all':
+            logging.info(dup_str)
+            # Find the original transactions to show their details
+            for dup_id in duplicates:
+                matching_txn = next((t for t in transactions_list if t['import_id'] == dup_id), None)
+                if matching_txn:
+                    logging.info(f"Skipped duplicate: {dup_id} - {matching_txn['payee_name']} ${float(matching_txn['amount'])/1000:.2f}")
     else:
         dup_str = "No duplicates"
 
-    if len(ynab_response["data"]["transactions"]) == 0:
+    new_txns = ynab_response["data"]["transactions"]
+    if not new_txns:
         logging.info(f"No new transactions loaded to YNAB - {dup_str}")
     else:
-        num_txns = len(ynab_response["data"]["transactions"])
+        num_txns = len(new_txns)
         logging.info(f"Successfully loaded {num_txns} transactions to YNAB - {dup_str}")
+        if debug_mode == 'all':
+            for txn in new_txns:
+                logging.info(f"Imported: {txn['import_id']} - {txn['payee_name']} ${float(txn['amount'])/1000:.2f}")
 
     return len(ynab_response["data"]["transactions"])
 
