@@ -12,7 +12,7 @@ from datetime import datetime
 # Run python search_transaction.py --refresh to copy your budget to this folder
 # Run python .\search_transaction.py 1234.56 to find a transaction of an exact amount.
 # 
-# So for exmaple 
+# So for example 
 # 1. Remove the transfer in Actual Budget
 # 2. Run python .\flask_app.py --sync to create it
 # At this point, both sides of the transfer should exist... but maybe they don't
