@@ -11,6 +11,16 @@ from datetime import datetime
 from dotenv import load_dotenv
 from actual import Actual
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("app.log"),
+        logging.StreamHandler()
+    ]
+)
+
 # Import from our modules package
 from modules import (
     fetch_akahu_accounts,
@@ -25,44 +35,47 @@ from modules.account_mapper import (
     check_for_changes,
     remove_seq
 )
+from modules.config import RUN_SYNC_TO_YNAB, RUN_SYNC_TO_AB
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("app.log"),
-        logging.StreamHandler()
-    ]
-)
+
 
 # Load environment variables from the parent directory's .env file
 load_dotenv(dotenv_path=pathlib.Path(__file__).parent / '.env')
 
+DEBUG = False
+
+# Define required environment variables based on sync settings
+logging.info(f"Sync targets - YNAB: {RUN_SYNC_TO_YNAB}, AB: {RUN_SYNC_TO_AB}")
+
 required_envs = [
-    'ACTUAL_SERVER_URL',
-    'ACTUAL_PASSWORD',
-    'ACTUAL_ENCRYPTION_KEY',
-    'ACTUAL_SYNC_ID',
     'AKAHU_USER_TOKEN',
     'AKAHU_APP_TOKEN',
     'AKAHU_PUBLIC_KEY',
     'OPENAI_API_KEY',
-    "YNAB_BEARER_TOKEN",
-    "YNAB_BUDGET_ID",
 ]
+
+if RUN_SYNC_TO_AB:
+    required_envs.extend([
+        'ACTUAL_SERVER_URL',
+        'ACTUAL_PASSWORD',
+        'ACTUAL_ENCRYPTION_KEY',
+        'ACTUAL_SYNC_ID',
+    ])
+
+if RUN_SYNC_TO_YNAB:
+    required_envs.extend([
+        'YNAB_BEARER_TOKEN',
+        'YNAB_BUDGET_ID',
+    ])
 
 # Load environment variables into a dictionary for validation
 ENVs = {key: os.getenv(key) for key in required_envs}
-SYNC_TO_YNAB = True
-SYNC_TO_AB = True
-DEBUG = False
 
 if DEBUG:
     for key, value in ENVs.items():
         logging.info("Environment variable {key}: {value}".format(key=key, value=value))
 
-# Validate that all environment variables are loaded
+# Validate that all required environment variables are loaded
 for key, value in ENVs.items():
     if value is None:
         logging.error(f"Environment variable {key} is missing.")
@@ -74,7 +87,7 @@ def main():
     latest_actual_accounts = {}
     latest_ynab_accounts = {}
 
-    if SYNC_TO_AB:
+    if RUN_SYNC_TO_AB:
         try:
             with Actual(
                     base_url=ENVs['ACTUAL_SERVER_URL'],
@@ -92,11 +105,12 @@ def main():
     else:
         logging.info("Not syncing to Actual Budget")
 
-    if SYNC_TO_YNAB:
+    latest_ynab_accounts = {}
+    if RUN_SYNC_TO_YNAB:
         latest_ynab_accounts = fetch_ynab_accounts()
         logging.info(f"Fetched {len(latest_ynab_accounts)} YNAB accounts.")
     else:
-        logging.info("Not syncing to YNAB")
+        logging.info("Not syncing to YNAB - skipping YNAB account fetch")
 
     # Step 0: Load existing mapping and validate
     existing_akahu_accounts, existing_actual_accounts, existing_ynab_accounts, existing_mapping = load_existing_mapping(generate_stub=True)
@@ -145,11 +159,11 @@ def main():
         logging.info("No changes detected in Akahu, Actual, or YNAB accounts. Skipping match")
     else:
         # Step 6: Match Akahu accounts to YNAB accounts interactively
-        if SYNC_TO_YNAB:
+        if RUN_SYNC_TO_YNAB:
             new_mapping = match_accounts(new_mapping, akahu_accounts, ynab_accounts, "ynab", use_openai=True)
 
         # Step 5: Match Akahu accounts to Actual accounts interactively
-        if SYNC_TO_AB:
+        if RUN_SYNC_TO_AB:
             new_mapping = match_accounts(new_mapping, akahu_accounts, actual_accounts, "actual", use_openai=True)
 
     # Step 7: Save the final mapping

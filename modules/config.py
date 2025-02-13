@@ -4,8 +4,10 @@ import os
 import logging
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Load environment variables with override=True to ensure .env values are used
+load_dotenv(verbose=True, override=True)
+
+# Debug logging for environment variables
 
 required_envs = [
     "ACTUAL_SERVER_URL",
@@ -15,6 +17,8 @@ required_envs = [
     "AKAHU_USER_TOKEN",
     "AKAHU_APP_TOKEN",
     "YNAB_BEARER_TOKEN",
+    "RUN_SYNC_TO_YNAB",
+    "RUN_SYNC_TO_AB",
 ]
 
 # Load environment variables into a dictionary for validation
@@ -36,8 +40,8 @@ AKAHU_HEADERS = {
 }
 
 # Load boolean flags from environment variables with defaults
-RUN_SYNC_TO_YNAB = os.getenv("RUN_SYNC_TO_YNAB", "true").lower() == "true"
-RUN_SYNC_TO_AB = os.getenv("RUN_SYNC_TO_AB", "true").lower() == "true"
+RUN_SYNC_TO_YNAB = ENVs["RUN_SYNC_TO_YNAB"].lower() == "true"
+RUN_SYNC_TO_AB = ENVs["RUN_SYNC_TO_AB"].lower() == "true"
 FORCE_REFRESH = os.getenv("FORCE_REFRESH", "false").lower() == "true"
 DEBUG_SYNC = os.getenv("DEBUG_SYNC", "false").lower() == "true"
 
