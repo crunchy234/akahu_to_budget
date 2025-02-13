@@ -233,8 +233,6 @@ def sync_to_ab(actual, mapping_list, debug_mode=None):
         )
         logging.info(f"Last synced: {last_reconciled_at}")
 
-        transactions_processed = False
-
         if account_type == "Tracking":
             # Update balance for mapping entry
             akahu_balance = get_akahu_balance(
@@ -250,7 +248,6 @@ def sync_to_ab(actual, mapping_list, debug_mode=None):
             transactions_uploaded += handle_tracking_account_actual(
                 mapping_entry, actual
             )  # Note either 1 or 0 returned
-            transactions_processed = True
             successful_ab_syncs.add(akahu_account_id)
         elif account_type == "On Budget":
             akahu_df = get_all_akahu(
@@ -262,49 +259,49 @@ def sync_to_ab(actual, mapping_list, debug_mode=None):
                 transactions_uploaded += load_transactions_into_actual(
                     akahu_df, mapping_entry, actual, debug_mode=debug_mode
                 )
-                transactions_processed = True
                 successful_ab_syncs.add(akahu_account_id)
         else:
             logging.error(f"Unknown account type for Akahu account: {akahu_account_id}")
             raise
 
-        # Commit changes if any transactions were processed
-        if transactions_processed:
+    # Commit all changes after processing all accounts
+    any_transactions_processed = transactions_uploaded > 0
+    if any_transactions_processed:
+        if DEBUG_SYNC:
+            logging.info("Finished processing all accounts, about to commit...")
+        try:
+            commit_result = actual.commit()
             if DEBUG_SYNC:
-                logging.info("Finished processing transactions, about to commit...")
-            try:
-                commit_result = actual.commit()
-                if DEBUG_SYNC:
-                    logging.info(f"Commit result: {commit_result}")
+                logging.info(f"Commit result: {commit_result}")
 
-                # Get sync changes
-                request = SyncRequest(
-                    {
-                        "fileId": actual._file.file_id,
-                        "groupId": actual._file.group_id,
-                        "keyId": actual._file.encrypt_key_id,
-                    }
+            # Get sync changes
+            request = SyncRequest(
+                {
+                    "fileId": actual._file.file_id,
+                    "groupId": actual._file.group_id,
+                    "keyId": actual._file.encrypt_key_id,
+                }
+            )
+            # Pass datetime object directly
+            request.set_timestamp(
+                client_id=actual._client.client_id, now=datetime.now()
+            )
+            changes = actual.sync_sync(request)
+            if DEBUG_SYNC:
+                logging.info(
+                    f"Sync changes: {changes.get_messages(actual._master_key)}"
                 )
-                # Pass datetime object directly
-                request.set_timestamp(
-                    client_id=actual._client.client_id, now=datetime.now()
-                )
-                changes = actual.sync_sync(request)
-                if DEBUG_SYNC:
-                    logging.info(
-                        f"Sync changes: {changes.get_messages(actual._master_key)}"
-                    )
 
-                # Get downloaded budget data
-                file_bytes = actual.download_user_file(actual._file.file_id)
-                if DEBUG_SYNC:
-                    logging.info(f"Downloaded budget size: {len(file_bytes)} bytes")
+            # Get downloaded budget data
+            file_bytes = actual.download_user_file(actual._file.file_id)
+            if DEBUG_SYNC:
+                logging.info(f"Downloaded budget size: {len(file_bytes)} bytes")
 
-                actual.download_budget()  # Force refresh after commit
-            except Exception as e:
-                logging.error(f"Error during commit: {str(e)}")
-                logging.error(f"Error type: {type(e)}")
-                raise
+            actual.download_budget()  # Force refresh after commit
+        except Exception as e:
+            logging.error(f"Error during commit: {str(e)}")
+            logging.error(f"Error type: {type(e)}")
+            raise
 
     if successful_ab_syncs:
         update_mapping_timestamps(successful_ab_syncs=successful_ab_syncs)

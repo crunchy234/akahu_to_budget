@@ -132,7 +132,7 @@ This connects to Akahu, gets the transactions, and syncs them to Actual Budget a
 When running the webhook server, the first sync is triggered automatically on startup. For subsequent syncs, use the web interface at http://localhost:5000/sync.
 There is minimal security, mostly because the webhooks don't take parameters so the worst someone can do is sync your budget prematurely.
 
-NOTE TO EXISTING USERS: If you're currently using akahu_to_budget.py, it will continue to work but we recommend switching to flask_app.py for improved features and ongoing support.
+NOTE TO EXISTING USERS: If you're been using akahu_to_budget.py, we have finished the migration to flask_app.py.  You will need to update your scripts.
 
 # Running Tests
 

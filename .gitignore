@@ -168,3 +168,4 @@ cython_debug/
 #.idea/
 akahu_budget_mapping.json.bak
 *.bak
+actual-budget-data/db.sqlite

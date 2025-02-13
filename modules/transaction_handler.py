@@ -612,7 +612,7 @@ def create_adjustment_txn_ynab(
         response = requests.post(uri, headers=ynab_headers, json=transaction)
         response.raise_for_status()
         logging.info(
-            f"Created YNAB balance adjustment transaction of ${balance_difference:,.2f}"
+            f"Created YNAB balance adjustment transaction of ${balance_difference/1000:,.2f}"
         )
 
     except requests.exceptions.RequestException as e:
