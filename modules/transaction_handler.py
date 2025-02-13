@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta
 import decimal
+import json
 import logging
 import pandas as pd
 import requests
@@ -17,6 +18,7 @@ from actual.queries import (
 from typing import Dict
 
 from modules.account_fetcher import get_actual_balance
+from modules.config import AKAHU_HEADERS
 
 
 def get_cached_names(actual) -> tuple[Dict[str, str], Dict[str, str]]:
@@ -128,6 +130,14 @@ def get_all_akahu(
                 headers=akahu_headers,
             )
             response.raise_for_status()
+            
+            akahu_txn_json = response.json()
+            akahu_txn = pd.DataFrame(akahu_txn_json.get("items", []))
+
+            # TODO: Enrichment endpoint requires different authentication
+            # for _, txn in akahu_txn.iterrows():
+            #     enrich_transaction(txn, akahu_endpoint, akahu_headers)
+
         except requests.exceptions.RequestException as e:
             logging.error(
                 f"Failed to fetch transactions from Akahu "
@@ -137,8 +147,6 @@ def get_all_akahu(
                 f"Failed to fetch Akahu transactions: {str(e)}"
             ) from None
 
-        akahu_txn_json = response.json()
-        akahu_txn = pd.DataFrame(akahu_txn_json.get("items", []))
         if res is None:
             res = akahu_txn.copy()
         else:
@@ -442,6 +450,25 @@ def handle_tracking_account_actual(mapping_entry, actual):
         logging.error(f"Error handling tracking account {akahu_account_name}: {str(e)}")
         raise
 
+
+def enrich_transaction(transaction_data, akahu_endpoint, akahu_headers):
+    """Print enrichment data for a transaction."""
+    try:
+        # Call the Akahu enrichment API with standard auth headers
+        response = requests.post(
+            "https://api.genie.akahu.io/v1/search",
+            headers=AKAHU_HEADERS,  # Use the standard Akahu headers
+            json={
+                "amount": float(transaction_data.get("amount")),
+                "date": transaction_data.get("date"),
+                "description": transaction_data.get("description")
+            }
+        )
+        response.raise_for_status()
+        logging.info(f"\nTransaction: {json.dumps(transaction_data, indent=2)}")
+        logging.info(f"\nEnriched data: {json.dumps(response.json(), indent=2)}")
+    except Exception as e:
+        logging.error(f"Error enriching transaction: {e}")
 
 def get_payee_name(row):
     """Extract the payee name from the given row.
