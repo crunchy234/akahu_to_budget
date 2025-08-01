@@ -19,6 +19,7 @@ from typing import Dict
 
 from modules.account_fetcher import get_actual_balance
 from modules.config import AKAHU_HEADERS
+from modules.pushcut_notifier import pushcut_notifier
 
 
 def get_cached_names(actual) -> tuple[Dict[str, str], Dict[str, str]]:
@@ -190,6 +191,7 @@ def load_transactions_into_actual(transactions, mapping_entry, actual, debug_mod
 
     actual_account_id = mapping_entry["actual_account_id"]
     imported_transactions = []
+    new_transactions_for_notification = []
 
     # Get cached names for rule changes - this will raise RuntimeError if it fails
     category_names, payee_names = get_cached_names(actual)
@@ -357,6 +359,15 @@ def load_transactions_into_actual(transactions, mapping_entry, actual, debug_mod
 
         if reconciled_transaction.changed():
             imported_transactions.append(reconciled_transaction)
+            
+            # Prepare transaction data for notification
+            new_transactions_for_notification.append({
+                '_id': imported_id,
+                'date': transaction_date,
+                'description': payee_name,
+                'amount': float(amount)
+            })
+            
             txn_details = f"on {parsed_date} at {payee_name} for ${amount}"
             logging.info(f"Imported new transaction {txn_details}")
             if notes != payee_name:
@@ -376,6 +387,18 @@ def load_transactions_into_actual(transactions, mapping_entry, actual, debug_mod
     except Exception as e:
         logging.error(f"Failed to commit changes to Actual Budget: {str(e)}")
         raise RuntimeError(f"Failed to commit changes to Actual: {str(e)}") from None
+
+    # Send Pushcut notification for new transactions
+    if new_transactions_for_notification:
+        account_name = mapping_entry.get("actual_account_name", "Unknown Account")
+        try:
+            pushcut_notifier.send_batch_notification(
+                new_transactions_for_notification, 
+                account_name
+            )
+        except Exception as e:
+            # Don't fail the sync if notification fails
+            logging.warning(f"Failed to send Pushcut notification: {str(e)}")
 
     return len(imported_transactions)
 
