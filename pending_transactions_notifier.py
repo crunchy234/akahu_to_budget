@@ -6,12 +6,16 @@ This script:
 1. Fetches all pending transactions from Akahu accounts
 2. Tracks which transactions have already been notified
 3. Sends Pushcut notifications for new pending transactions
+
+Note: Pending transactions don't have unique IDs, so we use a hash of transaction
+properties to track notifications.
 """
 
 import os
 import json
 import logging
 import requests
+import hashlib
 from datetime import datetime, timedelta
 from typing import Dict, List, Set
 from pathlib import Path
@@ -33,6 +37,26 @@ logging.basicConfig(
 
 # File to track sent notifications
 SENT_NOTIFICATIONS_FILE = "sent_pending_notifications.json"
+
+
+def generate_transaction_hash(txn: Dict) -> str:
+    """Generate a hash-based ID for a pending transaction.
+    
+    Since pending transactions don't have unique IDs, we create a hash
+    based on the transaction properties that are unlikely to change.
+    """
+    # Use account, date, amount, and description to create a unique hash
+    # We use _account_id which we added when fetching transactions
+    account_id = txn.get("_account_id", txn.get("_account", ""))
+    date = txn.get("date", "")
+    amount = str(txn.get("amount", 0))
+    description = txn.get("description", "")
+    
+    # Create a string combining these fields
+    hash_string = f"{account_id}|{date}|{amount}|{description}"
+    
+    # Generate a hash
+    return hashlib.sha256(hash_string.encode()).hexdigest()[:16]
 
 
 def load_sent_notifications() -> Set[str]:
@@ -144,8 +168,11 @@ def main():
     # Filter out already notified transactions
     new_transactions = []
     for txn in pending_transactions:
-        txn_id = txn.get("_id")
-        if txn_id and txn_id not in sent_notifications:
+        # Generate a hash-based ID for the pending transaction
+        txn_hash = generate_transaction_hash(txn)
+        txn["_generated_id"] = txn_hash  # Store for later use
+        
+        if txn_hash not in sent_notifications:
             new_transactions.append(txn)
 
     if not new_transactions:
@@ -161,9 +188,9 @@ def main():
 
         # Send notification
         if pushcut_notifier.send_transaction_notification(txn, account_name):
-            # Mark as sent
-            txn_id = txn.get("_id")
-            notifications_data[txn_id] = datetime.now().isoformat()
+            # Mark as sent using the generated hash ID
+            txn_hash = txn.get("_generated_id")
+            notifications_data[txn_hash] = datetime.now().isoformat()
             success_count += 1
 
             # Log transaction details
