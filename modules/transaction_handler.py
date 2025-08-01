@@ -18,8 +18,24 @@ from actual.queries import (
 from typing import Dict
 
 from modules.account_fetcher import get_actual_balance
-from modules.config import AKAHU_HEADERS
+from modules.config import AKAHU_HEADERS, AKAHU_ENDPOINT
 from modules.pushcut_notifier import pushcut_notifier
+
+
+def refresh_akahu_account_transactions():
+    """Refresh Akahu accounts and update mapping entry."""
+    try:
+        url = f'{AKAHU_ENDPOINT}refresh'
+
+        response = requests.post(url, headers=AKAHU_HEADERS)
+        response.raise_for_status()
+
+        data = response.json()
+        return data.get("success", False)
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Failed to refresh Akahu accounts", e)
+        return False
 
 
 def get_cached_names(actual) -> tuple[Dict[str, str], Dict[str, str]]:
@@ -394,7 +410,8 @@ def load_transactions_into_actual(transactions, mapping_entry, actual, debug_mod
         try:
             pushcut_notifier.send_batch_notification(
                 new_transactions_for_notification, 
-                account_name
+                account_name,
+                batch_mode=True,
             )
         except Exception as e:
             # Don't fail the sync if notification fails
