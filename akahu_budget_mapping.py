@@ -1,8 +1,5 @@
 # This script is responsible for reading from Akahu, Actual Budget and YNAB
 # And creating a mapping JSON
-#
-# It's also handy because it acts as a sanity test of the APIs
-# If this works then you know that connecting to all three is working, and there's no risk of breaking your budgets.
 
 import os
 import pathlib
@@ -175,9 +172,33 @@ def main():
         if RUN_SYNC_TO_AB:
             new_mapping = match_accounts(new_mapping, akahu_accounts, actual_accounts, "actual", use_openai=use_openai)
             
-        # We skip interactive matching for Sure. We will manually add the sure_id to the JSON later.
-        if RUN_SYNC_TO_SURE:
-            logging.info("Sure Finance sync is enabled. Please manually add 'sure_id' to your mapping JSON file.")
+    # Interactive Mapping Loop for Sure Finance
+    if RUN_SYNC_TO_SURE:
+        print("\n" + "="*50)
+        print("Sure Finance Interactive Mapping")
+        print("="*50)
+        print("Please provide the Sure Finance Account ID for your Akahu accounts.")
+        print("You can find this ID in the URL when viewing an account in the Sure UI.")
+        print("(Press Enter to skip an account if you don't want to map it to Sure)")
+        
+        for akahu_id, akahu_acc in akahu_accounts.items():
+            current_sure_id = new_mapping.get(akahu_id, {}).get("sure_id")
+            
+            # Skip if already mapped
+            if current_sure_id:
+                logging.info(f"[{akahu_acc['name']}] is already mapped to Sure ID: {current_sure_id}")
+                continue
+            
+            print(f"\nBank Account: {akahu_acc['name']}")
+            user_input = input("Enter Sure Account ID: ").strip()
+            
+            if user_input:
+                if akahu_id not in new_mapping:
+                    new_mapping[akahu_id] = {}
+                new_mapping[akahu_id]["sure_id"] = user_input
+                print(f"Mapped '{akahu_acc['name']}' to Sure ID '{user_input}'.")
+            else:
+                print("Skipped Akahu mapping to Sure ID.")
 
     # Step 7: Save the final mapping
     data_to_save = {
@@ -189,6 +210,7 @@ def main():
 
     data_without_seq = remove_seq(data_to_save)
     save_mapping(data_without_seq)
+    logging.info("Mapping saved successfully.")
 
 if __name__ == "__main__":
     main()
