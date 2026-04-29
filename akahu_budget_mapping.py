@@ -6,6 +6,7 @@ import pathlib
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
+from actual import Actual
 
 # Configure logging
 logging.basicConfig(
@@ -88,8 +89,6 @@ def main():
 
     if RUN_SYNC_TO_AB:
         try:
-            # Moved import here so it doesn't crash for Sure-only users
-            from actual import Actual
             with Actual(
                     base_url=ENVs['ACTUAL_SERVER_URL'],
                     password=ENVs['ACTUAL_PASSWORD'],
