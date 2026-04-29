@@ -1,5 +1,5 @@
-# THis script is responsible for reading from Akahu, Actual Budget and YNAB
-# ANd creating a mapping JSON
+# This script is responsible for reading from Akahu, Actual Budget and YNAB
+# And creating a mapping JSON
 #
 # It's also handy because it acts as a sanity test of the APIs
 # If this works then you know that connecting to all three is working, and there's no risk of breaking your budgets.
@@ -35,7 +35,7 @@ from modules.account_mapper import (
     check_for_changes,
     remove_seq
 )
-from modules.config import RUN_SYNC_TO_YNAB, RUN_SYNC_TO_AB
+from modules.config import RUN_SYNC_TO_YNAB, RUN_SYNC_TO_AB, RUN_SYNC_TO_SURE
 
 
 
@@ -45,7 +45,7 @@ load_dotenv(dotenv_path=pathlib.Path(__file__).parent / '.env')
 DEBUG = False
 
 # Define required environment variables based on sync settings
-logging.info(f"Sync targets - YNAB: {RUN_SYNC_TO_YNAB}, AB: {RUN_SYNC_TO_AB}")
+logging.info(f"Sync targets - YNAB: {RUN_SYNC_TO_YNAB}, AB: {RUN_SYNC_TO_AB}, SURE: {RUN_SYNC_TO_SURE}")
 
 required_envs = [
     'AKAHU_USER_TOKEN',
@@ -64,6 +64,11 @@ if RUN_SYNC_TO_YNAB:
     required_envs.extend([
         'YNAB_BEARER_TOKEN',
         'YNAB_BUDGET_ID',
+    ])
+
+if RUN_SYNC_TO_SURE:
+    required_envs.extend([
+        'SURE_API_TOKEN',
     ])
 
 # Load environment variables into a dictionary for validation
@@ -169,6 +174,10 @@ def main():
         # Step 5: Match Akahu accounts to Actual accounts interactively
         if RUN_SYNC_TO_AB:
             new_mapping = match_accounts(new_mapping, akahu_accounts, actual_accounts, "actual", use_openai=use_openai)
+            
+        # We skip interactive matching for Sure. We will manually add the sure_id to the JSON later.
+        if RUN_SYNC_TO_SURE:
+            logging.info("Sure Finance sync is enabled. Please manually add 'sure_id' to your mapping JSON file.")
 
     # Step 7: Save the final mapping
     data_to_save = {

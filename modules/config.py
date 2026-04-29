@@ -7,21 +7,26 @@ from dotenv import load_dotenv
 # Load environment variables with override=True to ensure .env values are used
 load_dotenv(verbose=True, override=True)
 
-for flag in ("RUN_SYNC_TO_YNAB", "RUN_SYNC_TO_AB"):
+for flag in ("RUN_SYNC_TO_YNAB", "RUN_SYNC_TO_AB", "RUN_SYNC_TO_SURE"):
     if os.getenv(flag) is None:
-        raise EnvironmentError(f"Missing required environment variable: {flag}")
+        # Default SURE to false if not present to avoid breaking existing setups
+        if flag == "RUN_SYNC_TO_SURE":
+            os.environ["RUN_SYNC_TO_SURE"] = "false"
+        else:
+            raise EnvironmentError(f"Missing required environment variable: {flag}")
 
 RUN_SYNC_TO_YNAB = os.getenv("RUN_SYNC_TO_YNAB").lower() == "true"
 RUN_SYNC_TO_AB = os.getenv("RUN_SYNC_TO_AB").lower() == "true"
+RUN_SYNC_TO_SURE = os.getenv("RUN_SYNC_TO_SURE", "false").lower() == "true"
 FORCE_REFRESH = os.getenv("FORCE_REFRESH", "false").lower() == "true"
 DEBUG_SYNC = os.getenv("DEBUG_SYNC", "false").lower() == "true"
 
-if not RUN_SYNC_TO_YNAB and not RUN_SYNC_TO_AB:
+if not RUN_SYNC_TO_YNAB and not RUN_SYNC_TO_AB and not RUN_SYNC_TO_SURE:
     logging.error(
-        "Environment variable RUN_SYNC_TO_YNAB or RUN_SYNC_TO_AB must be True."
+        "Environment variable RUN_SYNC_TO_YNAB, RUN_SYNC_TO_AB, or RUN_SYNC_TO_SURE must be True."
     )
     raise EnvironmentError(
-        "Environment variable RUN_SYNC_TO_YNAB or RUN_SYNC_TO_AB must be True."
+        "Environment variable RUN_SYNC_TO_YNAB, RUN_SYNC_TO_AB, or RUN_SYNC_TO_SURE must be True."
     )
 
 required_envs = ["AKAHU_USER_TOKEN", "AKAHU_APP_TOKEN"]
@@ -34,6 +39,8 @@ if RUN_SYNC_TO_AB:
     ]
 if RUN_SYNC_TO_YNAB:
     required_envs += ["YNAB_BEARER_TOKEN"]
+if RUN_SYNC_TO_SURE:
+    required_envs += ["SURE_API_TOKEN"]
 
 ENVs = {key: os.getenv(key) for key in required_envs}
 
