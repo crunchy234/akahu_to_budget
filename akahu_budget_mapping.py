@@ -6,7 +6,11 @@ import pathlib
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
-from actual import Actual
+
+try:
+    from actual import Actual
+except ImportError:
+    Actual = None
 
 # Configure logging
 logging.basicConfig(
@@ -88,6 +92,10 @@ def main():
     latest_ynab_accounts = {}
 
     if RUN_SYNC_TO_AB:
+        if Actual is None:
+            logging.error("Actual Budget sync is enabled but the 'actual' module is not installed.")
+            raise ImportError("Please install actualpy to sync with Actual Budget.")
+            
         try:
             with Actual(
                     base_url=ENVs['ACTUAL_SERVER_URL'],

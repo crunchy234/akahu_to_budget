@@ -20,7 +20,11 @@ from modules.config import (
     FORCE_REFRESH,
     DEBUG_SYNC,
 )
-from actual.protobuf_models import SyncRequest
+
+try:
+    from actual.protobuf_models import SyncRequest
+except ImportError:
+    SyncRequest = None
 
 
 def get_account_priority(account_entry):

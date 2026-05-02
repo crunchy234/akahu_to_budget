@@ -6,18 +6,30 @@ import json
 import logging
 import pandas as pd
 import requests
-from actual.queries import (
-    create_transaction,
-    get_ruleset,
-    reconcile_transaction,
-    get_categories,
-    get_payee,
-    get_payees,
-    get_account,
-    match_transaction,
-    set_transaction_payee,
-)
 from typing import Dict
+
+try:
+    from actual.queries import (
+        create_transaction,
+        get_ruleset,
+        reconcile_transaction,
+        get_categories,
+        get_payee,
+        get_payees,
+        get_account,
+        match_transaction,
+        set_transaction_payee,
+    )
+except ImportError:
+    create_transaction = None
+    get_ruleset = None
+    reconcile_transaction = None
+    get_categories = None
+    get_payee = None
+    get_payees = None
+    get_account = None
+    match_transaction = None
+    set_transaction_payee = None
 
 from modules.account_fetcher import get_actual_balance
 from modules.config import AKAHU_HEADERS
@@ -295,7 +307,6 @@ def load_transactions_into_actual(transactions, mapping_entry, actual, debug_mod
                         payee_name  # imported_payee
                     )
             else:
-                # Normal non-debug path using reconcile_transaction
                 # Normal non-debug path using reconcile_transaction
                 # Set update_existing=False since we want to detect duplicates but not update them
                 reconciled_transaction = reconcile_transaction(

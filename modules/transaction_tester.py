@@ -3,7 +3,11 @@
 import logging
 import time
 import pandas as pd
-from actual.queries import get_transactions
+
+try:
+    from actual.queries import get_transactions
+except ImportError:
+    get_transactions = None
 
 # Test transaction template - matches Akahu API format
 TEST_TRANSACTION_TEMPLATE = {
