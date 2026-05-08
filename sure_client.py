@@ -2,7 +2,8 @@ import os
 import urllib.request
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
+import zoneinfo
 
 # Setup basic logging to systemd journal
 logger = logging.getLogger(__name__)
@@ -15,41 +16,43 @@ def push_to_sure(transaction, sure_account_id):
         logger.warning("Missing SURE_API_TOKEN in environment. Skipping Sure Finance sync.")
         return
 
-    # Extract clean data from the Akahu transaction object
-    amount = transaction.get("amount")
+    # FLIP THE SIGN: Akahu positive (expense) becomes Sure negative (expense)
+    raw_amount = transaction.get("amount", 0)
+    amount = -raw_amount 
     
-    # Timezone Conversion Logic
+    # Precise Timezone Conversion Logic
     raw_date = transaction.get("date")
     if raw_date:
         try:
-            # Strip off the 'Z' and any fractional seconds (e.g., .000)
             if '.' in raw_date:
                 raw_date = raw_date[:raw_date.index('.')]
             if raw_date.endswith('Z'):
                 raw_date = raw_date[:-1]
                 
-            # Parse the UTC time and add 12 hours for NZT
-            utc_time = datetime.fromisoformat(raw_date)
-            # Or +13 hours during Daylight Saving Time, depending on your needs. 
-            # We'll stick to a standard +12 for this example.
-            nzt_time = utc_time + timedelta(hours=12)
+            # Parse as a UTC-aware datetime object
+            utc_time = datetime.fromisoformat(raw_date).replace(tzinfo=timezone.utc)
+            
+            # Convert natively to Pacific/Auckland (handles both NZST and NZDT automatically)
+            nz_tz = zoneinfo.ZoneInfo("Pacific/Auckland")
+            nzt_time = utc_time.astimezone(nz_tz)
             date_string = nzt_time.strftime("%Y-%m-%d")
-        except ValueError:
-            # Fallback if the date format is completely unexpected
-            logger.warning(f"Could not parse date string: {raw_date}. Falling back to raw slice.")
+        except Exception as e:
+            logger.warning(f"Could not parse date string: {raw_date}. Error: {e}. Falling back.")
             date_string = raw_date[:10]
     else:
         date_string = ""
 
     name = transaction.get("merchant_name") or transaction.get("description") or "Unknown Transaction"
+    akahu_id = transaction.get("_id", "")
 
-    # Wrap the payload inside a 'transaction' root key for Rails Strong Parameters
+    # Wrap the payload and include the external_id for robust deduplication
     payload = {
         "transaction": {
             "account_id": sure_account_id,
             "date": date_string,
             "amount": amount,
             "name": name,
+            "external_id": akahu_id 
         }
     }
 
