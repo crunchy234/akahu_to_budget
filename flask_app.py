@@ -4,17 +4,13 @@ Also provides webhook endpoints for real-time transaction syncing.
 """
 
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import os
 import logging
 import argparse
 import signal
 import sys
 import requests
-
-try:
-    from actual import Actual
-except ImportError:
-    Actual = None
 
 # Import from our modules package
 from modules.sync_handler import sync_to_ab, sync_to_ynab
@@ -24,14 +20,14 @@ from modules.account_mapper import load_existing_mapping, save_mapping
 from modules.config import AKAHU_ENDPOINT, AKAHU_HEADERS
 from modules.config import RUN_SYNC_TO_AB, RUN_SYNC_TO_YNAB, RUN_SYNC_TO_SURE
 from modules.config import ENVs
-
-try:
-    from modules.webhook_handler import create_flask_app
-except ImportError:
-    create_flask_app = None
-
-# Import our custom Sure Finance integration
+from modules.webhook_handler import create_flask_app
 import sure_client
+
+# actualpy is an optional dependency; modules.config raises at import time if
+# RUN_SYNC_TO_AB=true and it's missing. Importing here is unconditional because
+# get_actual_client() guards on RUN_SYNC_TO_AB before constructing the client.
+if RUN_SYNC_TO_AB:
+    from actual import Actual
 
 # Configure logging
 logging.basicConfig(
@@ -50,10 +46,10 @@ def get_actual_client():
     or None otherwise.
     This is needed because actualpy only works with contextmanager
     """
-    if RUN_SYNC_TO_AB and Actual is not None:
+    if RUN_SYNC_TO_AB:
         try:
             logging.info(f"Attempting to connect to Actual server at {ENVs['ACTUAL_SERVER_URL']}")
-            
+
             with Actual(
                 base_url=ENVs['ACTUAL_SERVER_URL'],
                 password=ENVs['ACTUAL_PASSWORD'],
@@ -64,6 +60,10 @@ def get_actual_client():
                 yield client
         except requests.exceptions.RequestException as e:
             logging.error(f"Failed to connect to Actual server: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                logging.error(f"Response status: {e.response.status_code}")
+                logging.error(f"Response headers: {dict(e.response.headers)}")
+                logging.error(f"Response content: {e.response.text[:500]}")
             raise RuntimeError(f"Failed to connect to Actual server: {str(e)}") from None
     else:
         yield None
@@ -80,9 +80,6 @@ signal.signal(signal.SIGTERM, signal_handler)  # Handle kill
 
 def create_application():
     """Create Flask application."""
-    if create_flask_app is None:
-        raise ImportError("Flask requirements missing.")
-        
     _, _, _, mapping_list = load_existing_mapping()
     
     with get_actual_client() as actual_client:
@@ -97,23 +94,22 @@ def create_application():
 def sync_to_sure(mapping_list):
     """Pull transactions from Akahu and push them to Sure Finance."""
     sure_count = 0
-    from datetime import datetime
-    current_time = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    
+    current_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     for akahu_id, mapping_entry in mapping_list.items():
         sure_id = mapping_entry.get("sure_id")
-        
+
         if not sure_id or mapping_entry.get("sure_do_not_map"):
             continue
-            
+
         akahu_name = mapping_entry.get('name', akahu_id)
         logging.info(f"Syncing Akahu account '{akahu_name}' to Sure Finance...")
-        
+
         last_reconciled = mapping_entry.get("sure_synced_datetime", "2024-01-01T00:00:00Z")
-        
-        # Pull everything since the last successful sync
+
         akahu_df = get_all_akahu(akahu_id, AKAHU_ENDPOINT, AKAHU_HEADERS, last_reconciled)
-        
+
+        account_failed = False
         if akahu_df is not None and not akahu_df.empty:
             for _, txn_row in akahu_df.iterrows():
                 txn_dict = txn_row.to_dict()
@@ -121,11 +117,19 @@ def sync_to_sure(mapping_list):
                     sure_client.push_to_sure(txn_dict, sure_id)
                     sure_count += 1
                 except Exception as e:
-                    logging.error(f"Error pushing transaction to Sure: {e}")
-        
-        # Update the sync time so we don't pull duplicates tomorrow
-        mapping_entry["sure_synced_datetime"] = current_time
-        
+                    # Don't advance the watermark below — the failed txn must be
+                    # retried next run, otherwise it's silently dropped forever.
+                    logging.error(f"Error pushing transaction to Sure for '{akahu_name}': {e}")
+                    account_failed = True
+
+        if account_failed:
+            logging.warning(
+                f"Not advancing sync watermark for '{akahu_name}' due to errors. "
+                "Failed transactions will be retried on the next sync."
+            )
+        else:
+            mapping_entry["sure_synced_datetime"] = current_time
+
     return sure_count
 
 
@@ -158,9 +162,9 @@ def run_sync(account_ids=None, debug_mode=None):
             actual_count = sync_to_ab(actual_client, mapping_list, debug_mode=debug_mode)
             logging.info(f"Synced {actual_count} accounts to Actual Budget.")
 
-    if RUN_SYNC_TO_YNAB:
-        ynab_count = sync_to_ynab(mapping_list, debug_mode=debug_mode)
-        logging.info(f"Synced {ynab_count} accounts to YNAB.")
+        if RUN_SYNC_TO_YNAB:
+            ynab_count = sync_to_ynab(mapping_list, debug_mode=debug_mode)
+            logging.info(f"Synced {ynab_count} accounts to YNAB.")
 
     if RUN_SYNC_TO_SURE:
         sure_count = sync_to_sure(mapping_list)

@@ -8,7 +8,10 @@ import pandas as pd
 import requests
 from typing import Dict
 
-try:
+from modules.account_fetcher import get_actual_balance
+from modules.config import AKAHU_HEADERS, RUN_SYNC_TO_AB
+
+if RUN_SYNC_TO_AB:
     from actual.queries import (
         create_transaction,
         get_ruleset,
@@ -20,19 +23,6 @@ try:
         match_transaction,
         set_transaction_payee,
     )
-except ImportError:
-    create_transaction = None
-    get_ruleset = None
-    reconcile_transaction = None
-    get_categories = None
-    get_payee = None
-    get_payees = None
-    get_account = None
-    match_transaction = None
-    set_transaction_payee = None
-
-from modules.account_fetcher import get_actual_balance
-from modules.config import AKAHU_HEADERS
 
 
 def get_cached_names(actual) -> tuple[Dict[str, str], Dict[str, str]]:

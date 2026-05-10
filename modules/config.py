@@ -21,13 +21,24 @@ RUN_SYNC_TO_SURE = os.getenv("RUN_SYNC_TO_SURE", "false").lower() == "true"
 FORCE_REFRESH = os.getenv("FORCE_REFRESH", "false").lower() == "true"
 DEBUG_SYNC = os.getenv("DEBUG_SYNC", "false").lower() == "true"
 
+# actualpy is an optional dependency. Fail fast at startup if the user has
+# enabled the Actual Budget sync target but did not install it.
+if RUN_SYNC_TO_AB:
+    try:
+        import actual  # noqa: F401
+    except ImportError as e:
+        raise ImportError(
+            "RUN_SYNC_TO_AB=true but actualpy is not installed. "
+            "Install it with: pip install -r requirements_actual.txt"
+        ) from e
+
 if not RUN_SYNC_TO_YNAB and not RUN_SYNC_TO_AB and not RUN_SYNC_TO_SURE:
-    logging.error(
-        "Environment variable RUN_SYNC_TO_YNAB, RUN_SYNC_TO_AB, or RUN_SYNC_TO_SURE must be True."
+    msg = (
+        "At least one of RUN_SYNC_TO_YNAB, RUN_SYNC_TO_AB, "
+        "RUN_SYNC_TO_SURE must be True."
     )
-    raise EnvironmentError(
-        "Environment variable RUN_SYNC_TO_YNAB, RUN_SYNC_TO_AB, or RUN_SYNC_TO_SURE must be True."
-    )
+    logging.error(msg)
+    raise EnvironmentError(msg)
 
 required_envs = ["AKAHU_USER_TOKEN", "AKAHU_APP_TOKEN"]
 if RUN_SYNC_TO_AB:

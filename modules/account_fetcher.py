@@ -3,13 +3,11 @@
 import os
 import logging
 import requests
-from modules.config import AKAHU_ENDPOINT, AKAHU_HEADERS, YNAB_ENDPOINT, YNAB_HEADERS
+from modules.config import AKAHU_ENDPOINT, AKAHU_HEADERS, YNAB_ENDPOINT, YNAB_HEADERS, RUN_SYNC_TO_AB
 
-try:
+if RUN_SYNC_TO_AB:
     from actual.queries import get_accounts, get_account
-except ImportError:
-    get_accounts = None
-    get_account = None
+
 
 def is_simple_value(value):
     """Check if the value is a trivial type: int, float, str, bool, or None"""

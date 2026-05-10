@@ -1,70 +1,76 @@
-import os
-import urllib.request
-import json
-import logging
-from datetime import datetime, timezone
-import zoneinfo
+"""Push Akahu transactions to a self-hosted Sure Finance instance."""
 
-# Setup basic logging to systemd journal
+import logging
+import os
+import zoneinfo
+from datetime import datetime, timezone
+
+import requests
+
 logger = logging.getLogger(__name__)
 
-SURE_API_TOKEN = os.environ.get("SURE_API_TOKEN")
-SURE_URL = "http://127.0.0.1:8084/api/v1/transactions" 
+# Pull configuration at call time, not import time, so test harnesses and the
+# config validation in modules.config can reliably see the values.
+SURE_DEFAULT_URL = "http://127.0.0.1:8084/api/v1/transactions"
+SURE_REQUEST_TIMEOUT_SECONDS = 15
+NZ_TIMEZONE = zoneinfo.ZoneInfo("Pacific/Auckland")
+
+
+def _akahu_to_sure_date(raw_date):
+    """Convert an Akahu UTC ISO timestamp to a Sure-friendly NZ-local YYYY-MM-DD.
+
+    Sure anchors transactions to local-time, so a late-evening NZ transaction
+    expressed in UTC would otherwise roll back a calendar day.
+    """
+    if not raw_date:
+        return ""
+    cleaned = raw_date.split(".", 1)[0]
+    if cleaned.endswith("Z"):
+        cleaned = cleaned[:-1]
+    utc_time = datetime.fromisoformat(cleaned).replace(tzinfo=timezone.utc)
+    return utc_time.astimezone(NZ_TIMEZONE).strftime("%Y-%m-%d")
+
 
 def push_to_sure(transaction, sure_account_id):
-    if not SURE_API_TOKEN:
-        logger.warning("Missing SURE_API_TOKEN in environment. Skipping Sure Finance sync.")
-        return
+    """Post a single Akahu transaction dict to Sure Finance."""
+    sure_api_token = os.environ.get("SURE_API_TOKEN")
+    if not sure_api_token:
+        raise RuntimeError(
+            "SURE_API_TOKEN is missing — modules.config should have caught this. "
+            "Is RUN_SYNC_TO_SURE set correctly?"
+        )
 
-    # FLIP THE SIGN: Akahu positive (expense) becomes Sure negative (expense)
-    raw_amount = transaction.get("amount", 0)
-    amount = -raw_amount 
-    
-    # Precise Timezone Conversion Logic
-    raw_date = transaction.get("date")
-    if raw_date:
-        try:
-            if '.' in raw_date:
-                raw_date = raw_date[:raw_date.index('.')]
-            if raw_date.endswith('Z'):
-                raw_date = raw_date[:-1]
-                
-            # Parse as a UTC-aware datetime object
-            utc_time = datetime.fromisoformat(raw_date).replace(tzinfo=timezone.utc)
-            
-            # Convert natively to Pacific/Auckland (handles both NZST and NZDT automatically)
-            nz_tz = zoneinfo.ZoneInfo("Pacific/Auckland")
-            nzt_time = utc_time.astimezone(nz_tz)
-            date_string = nzt_time.strftime("%Y-%m-%d")
-        except Exception as e:
-            logger.warning(f"Could not parse date string: {raw_date}. Error: {e}. Falling back.")
-            date_string = raw_date[:10]
-    else:
-        date_string = ""
+    sure_url = os.environ.get("SURE_API_URL", SURE_DEFAULT_URL)
 
-    name = transaction.get("merchant_name") or transaction.get("description") or "Unknown Transaction"
-    akahu_id = transaction.get("_id", "")
+    # Akahu and Sure use opposite sign conventions for depository accounts:
+    # Akahu reports expenses as negative amounts, Sure stores expenses as
+    # positive (and renders them with a leading minus in the UI). Negating
+    # bridges the two so a debit in Akahu lands as a debit in Sure.
+    amount = -transaction.get("amount", 0)
 
-    # Wrap the payload and include the external_id for robust deduplication
+    date_string = _akahu_to_sure_date(transaction.get("date"))
+
+    name = (
+        transaction.get("merchant_name")
+        or transaction.get("description")
+        or "Unknown Transaction"
+    )
+
     payload = {
         "transaction": {
             "account_id": sure_account_id,
             "date": date_string,
             "amount": amount,
             "name": name,
-            "external_id": akahu_id 
+            "external_id": transaction.get("_id", ""),
         }
     }
 
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(SURE_URL, data=data, headers={
-        "X-Api-Key": SURE_API_TOKEN,
-        "Content-Type": "application/json"
-    })
-
-    try:
-        urllib.request.urlopen(req)
-        logger.info(f"Sure Sync Success: {name} for ${amount}")
-    except Exception as e:
-        logger.error(f"Sure Sync Failed: {e}")
-        raise e
+    response = requests.post(
+        sure_url,
+        json=payload,
+        headers={"X-Api-Key": sure_api_token},
+        timeout=SURE_REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    logger.info(f"Sure sync success: {name} for ${amount}")
