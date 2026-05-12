@@ -62,7 +62,7 @@ def push_to_sure(transaction, sure_account_id):
             "date": date_string,
             "amount": amount,
             "name": name,
-            "external_id": transaction.get("_id", ""),
+            "notes": f"Akahu ID: {transaction.get('_id', '')}",
         }
     }
 
