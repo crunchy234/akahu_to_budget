@@ -80,3 +80,14 @@ The application requires a `.env` file with API credentials and feature flags. S
 - Account mapping configuration is crucial - run `akahu_budget_mapping.py` before first sync
 - All logging goes to both `app.log` and console
 - Webhook endpoints provide real-time transaction syncing capabilities
+
+## Development Guidelines
+
+- **DO NOT** access SQLite database directly - always use `actualpy` library
+- **DO NOT** use placeholders
+
+ALWAYS
+- Fail early, and loudly
+- Remember DRY
+- Follow python best practice
+- write code ready for release to production on many different user's computers
