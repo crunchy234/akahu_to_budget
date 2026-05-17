@@ -1,19 +1,5 @@
 #!/usr/bin/env python3
-"""
-Analyze payees in Actual Budget database and prepare data for OpenAI analysis.
-
-ERROR LOG:
-1. Used direct SQLite access instead of actualpy library
-2. Used print statements instead of proper error handling  
-3. Used try/except instead of failing early
-4. Guessed at API without reading library code - made assumptions about get_transactions return format
-5. Failed to read actual library code before implementing transaction field access
-6. Used fallback logic instead of failing early when transaction data is unexpected
-7. Used abs() on amounts making totals meaningless by treating income and expenses the same
-8. Used category IDs instead of human-readable category names in output
-9. Used processed payee name instead of original imported_description for consolidation analysis
-10. Limited output to top 100 payees, hiding consolidation opportunities in lower-volume payees
-"""
+"""Export Actual Budget payee statistics for consolidation review."""
 
 import json
 import logging

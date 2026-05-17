@@ -20,7 +20,10 @@ def load_payee_analysis():
         with open('payee_analysis_for_openai.txt', 'r') as f:
             return f.read()
     except FileNotFoundError:
-        raise ValueError("payee_analysis_for_openai.txt not found. Run analyze_payees.py first.")
+        raise ValueError(
+            "payee_analysis_for_openai.txt not found. Run "
+            "tools/payee_analysis/analyze_payees.py first."
+        )
 
 def create_consolidation_prompt(analysis_data):
     """Create the OpenAI prompt for generating consolidation rules."""
