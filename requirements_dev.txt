@@ -1,3 +1,4 @@
+-r requirements_setup.txt
 flake8
 pytest
 pytest-mock

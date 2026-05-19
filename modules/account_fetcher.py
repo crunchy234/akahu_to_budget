@@ -134,14 +134,19 @@ def get_akahu_balance(akahu_account_id, akahu_endpoint, akahu_headers):
             f"{akahu_endpoint}/accounts/{akahu_account_id}", headers=akahu_headers
         )
         if response.status_code != 200:
-            logging.error(
+            message = (
                 f"Failed to fetch balance for account {akahu_account_id}. "
                 f"Status code: {response.status_code}, Response: {response.text}"
             )
-            return None
+            logging.error(message)
+            raise RuntimeError(message)
         account_data = response.json()
         item = account_data.get("item", {})
         balance = item.get("balance", {}).get("current")
+        if balance is None:
+            raise RuntimeError(
+                f"Akahu balance response for account {akahu_account_id} did not include a current balance."
+            )
         return balance
     except Exception as e:
         logging.error(f"Error fetching balance for account {akahu_account_id}: {e}")
@@ -155,8 +160,7 @@ def get_actual_balance(actual, actual_account_id):
         with actual.session as session:
             account = get_account(session, actual_account_id)
             if account is None:
-                logging.error(f"Account '{actual_account_id}' not found.")
-                return None
+                raise RuntimeError(f"Actual account '{actual_account_id}' not found.")
 
             # Convert from dollars to cents since Actual stores balances in dollars
             total_balance = int(account.balance * 100)

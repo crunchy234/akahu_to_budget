@@ -14,7 +14,7 @@ created for AB (e.g. Payees, failing to trigger rules).  Please raise bugs.
 # Setup
 
 1. Create an Akahu account and an Akahu app: [https://my.akahu.nz/login](https://my.akahu.nz/login)
-2. Set up an OpenAI account and get an API key: [https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys) (OPTIONAL)
+2. Optionally set up an OpenAI account and get an API key for smarter account mapping: [https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys)
 3. Set up an Actual Budget Server and get the server URL, password, encryption key, and sync ID: [https://actualbudget.org/](https://actualbudget.org/).  I used PikaPods
 4. And/OR in YNAB get a bearer token and the budget ID: [https://api.youneedabudget.com/](https://api.youneedabudget.com/)
 5. Check out this repository
@@ -87,6 +87,18 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Before preparing account mappings, install the setup dependencies:
+
+```bash
+pip install -r requirements_setup.txt
+```
+
+If you want to run the webhook server, also install the web dependencies:
+
+```bash
+pip install -r requirements_web.txt
+```
+
 # Preparing to run the script
 
 Run `python akahu_budget_mapping.py`
@@ -109,7 +121,7 @@ You will likely never need to run this again unless you want to change the mappi
 Run the script using:
 ```bash
 # For one-time sync (recommended for most users):
-python flask_app.py --sync
+python sync_cli.py
 
 # For running the webhook server:
 python flask_app.py
@@ -120,7 +132,7 @@ This connects to Akahu, gets the transactions, and syncs them to Actual Budget a
 When running the webhook server, the first sync is triggered automatically on startup. For subsequent syncs, use the web interface at http://localhost:5000/sync.
 There is minimal security, mostly because the webhooks don't take parameters so the worst someone can do is sync your budget prematurely.
 
-NOTE TO EXISTING USERS: If you're been using akahu_to_budget.py, we have finished the migration to flask_app.py.  You will need to update your scripts.
+NOTE TO EXISTING USERS: If you've been using akahu_to_budget.py, we have finished the migration to `sync_cli.py` for one-time syncs and `flask_app.py` for the webhook server. `python flask_app.py --sync` is deprecated and may be removed in a future version.
 
 # Running in a container
 
@@ -135,18 +147,14 @@ You still need to provide your `.env` file and the `akahu_budget_mapping.json`
 you generated during setup. Mount them both into the container:
 
 ```bash
-# One-off sync (the default)
 podman run --rm \
   --env-file ./.env \
   -v ./akahu_budget_mapping.json:/app/akahu_budget_mapping.json \
   ghcr.io/corrin/akahu_to_budget:latest
-
-# Webhook server (overrides the default CMD and exposes port 5000)
-podman run --rm -p 5000:5000 \
-  --env-file ./.env \
-  -v ./akahu_budget_mapping.json:/app/akahu_budget_mapping.json \
-  ghcr.io/corrin/akahu_to_budget:latest ''
 ```
+
+The container image runs one-off syncs and does not include Flask. Use host cron
+or a systemd timer for scheduled container syncs.
 
 Substitute `docker` for `podman` if you prefer. To build locally instead of
 pulling:

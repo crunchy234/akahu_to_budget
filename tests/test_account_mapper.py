@@ -101,3 +101,42 @@ def test_validate_user_input_rejects_non_numeric():
     from modules.account_mapper import validate_user_input
 
     assert validate_user_input("abc", [], {}, "actual_account_id") is None
+
+
+def test_save_mapping_failure_is_fatal(tmp_path):
+    from modules.mapping_store import save_mapping
+
+    with pytest.raises(IsADirectoryError):
+        save_mapping(
+            {
+                "akahu_accounts": {},
+                "actual_accounts": {},
+                "ynab_accounts": {},
+                "mapping": {},
+            },
+            mapping_file=tmp_path,
+        )
+
+
+def test_load_existing_mapping_missing_file_is_fatal_by_default(tmp_path):
+    from modules.mapping_store import load_existing_mapping
+
+    with pytest.raises(FileNotFoundError):
+        load_existing_mapping(mapping_file=tmp_path / "missing.json")
+
+
+def test_load_existing_mapping_can_generate_stub(tmp_path):
+    from modules.mapping_store import load_existing_mapping
+
+    mapping_file = tmp_path / "mapping.json"
+
+    akahu_accounts, actual_accounts, ynab_accounts, mapping = load_existing_mapping(
+        mapping_file=mapping_file,
+        generate_stub=True,
+    )
+
+    assert mapping_file.exists()
+    assert akahu_accounts == {}
+    assert actual_accounts == {}
+    assert ynab_accounts == {}
+    assert mapping == {}

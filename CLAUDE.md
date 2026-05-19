@@ -10,7 +10,8 @@ While it techncially supports a web front end (Flask), no users currently use th
 
 ## Architecture
 
-- **Main Entry Point**: `flask_app.py` - Flask web application with webhook endpoints and CLI sync functionality
+- **Sync Entry Point**: `sync_cli.py` - CLI sync functionality without Flask dependencies
+- **Web Entry Point**: `flask_app.py` - Flask web application with webhook endpoints
 - **Core Modules** (in `/modules/`):
   - `config.py` - Environment variable handling and API configuration
   - `sync_handler.py` - Core sync logic for both YNAB and Actual Budget
@@ -41,7 +42,7 @@ pip install -r requirements_dev.txt
 ### Running the Application
 ```bash
 # One-time sync (recommended for most users)
-python flask_app.py --sync
+python sync_cli.py
 
 # Run webhook server (includes initial sync)
 python flask_app.py
@@ -80,3 +81,14 @@ The application requires a `.env` file with API credentials and feature flags. S
 - Account mapping configuration is crucial - run `akahu_budget_mapping.py` before first sync
 - All logging goes to both `app.log` and console
 - Webhook endpoints provide real-time transaction syncing capabilities
+
+## Development Guidelines
+
+- **DO NOT** access SQLite database directly - always use `actualpy` library
+- **DO NOT** use placeholders
+
+ALWAYS
+- Fail early, and loudly
+- Remember DRY
+- Follow python best practice
+- write code ready for release to production on many different user's computers

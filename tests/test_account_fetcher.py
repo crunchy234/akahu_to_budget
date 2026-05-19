@@ -101,7 +101,7 @@ def test_get_akahu_balance_returns_current_balance():
 
 
 @responses.activate
-def test_get_akahu_balance_returns_none_on_http_error():
+def test_get_akahu_balance_raises_on_http_error():
     from modules.account_fetcher import get_akahu_balance
 
     responses.add(
@@ -111,7 +111,23 @@ def test_get_akahu_balance_returns_none_on_http_error():
         status=404,
     )
 
-    assert get_akahu_balance("acc_123", "https://api.akahu.io/v1", {}) is None
+    with pytest.raises(RuntimeError, match="Failed to fetch balance"):
+        get_akahu_balance("acc_123", "https://api.akahu.io/v1", {})
+
+
+@responses.activate
+def test_get_akahu_balance_raises_when_current_balance_missing():
+    from modules.account_fetcher import get_akahu_balance
+
+    responses.add(
+        responses.GET,
+        "https://api.akahu.io/v1/accounts/acc_123",
+        json={"item": {"balance": {}}},
+        status=200,
+    )
+
+    with pytest.raises(RuntimeError, match="current balance"):
+        get_akahu_balance("acc_123", "https://api.akahu.io/v1", {})
 
 
 @responses.activate

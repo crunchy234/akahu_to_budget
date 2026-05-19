@@ -1,7 +1,7 @@
 from datetime import datetime
 import logging
 from modules.account_fetcher import get_akahu_balance, get_ynab_balance
-from modules.account_mapper import load_existing_mapping, save_mapping
+from modules.mapping_store import load_existing_mapping, save_mapping
 from modules.transaction_handler import (
     clean_txn_for_ynab,
     create_adjustment_txn_ynab,
@@ -34,8 +34,7 @@ def get_account_priority(account_entry):
     elif account_type == "Tracking":
         return 1
     else:
-        logging.warning(f"Unknown account type: {account_type}, treating as Tracking")
-        return 1
+        raise ValueError(f"Unknown account type: {account_type}")
 
 
 def update_mapping_timestamps(
@@ -169,7 +168,7 @@ def sync_to_ynab(mapping_list, debug_mode=None):
                 )
                 successful_syncs.add(akahu_account_id)
         else:
-            logging.error(f"Unknown account type for Akahu account: {akahu_account_id}")
+            raise ValueError(f"Unknown account type for Akahu account: {akahu_account_id}")
 
     if successful_syncs:
         update_mapping_timestamps(successful_ynab_syncs=successful_syncs)
@@ -237,11 +236,6 @@ def sync_to_ab(actual, mapping_list, debug_mode=None):
             akahu_balance = get_akahu_balance(
                 akahu_account_id, AKAHU_ENDPOINT, AKAHU_HEADERS
             )
-            if akahu_balance is None:
-                logging.error(
-                    f"Could not get balance for tracking account {mapping_entry['akahu_name']}"
-                )
-                continue
 
             mapping_entry["akahu_balance"] = akahu_balance
             transactions_uploaded += handle_tracking_account_actual(
@@ -260,8 +254,7 @@ def sync_to_ab(actual, mapping_list, debug_mode=None):
                 )
                 successful_ab_syncs.add(akahu_account_id)
         else:
-            logging.error(f"Unknown account type for Akahu account: {akahu_account_id}")
-            raise
+            raise ValueError(f"Unknown account type for Akahu account: {akahu_account_id}")
 
     # Commit all changes after processing all accounts
     any_transactions_processed = transactions_uploaded > 0

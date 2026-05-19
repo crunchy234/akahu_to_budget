@@ -1,9 +1,6 @@
 actualpy
 python-dotenv
 requests
-openai
-fuzzywuzzy
+httpx
 pandas
-flask
 cryptography
-python-Levenshtein
