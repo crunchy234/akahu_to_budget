@@ -12,7 +12,6 @@ import os
 import openai
 import google.generativeai as genai
 from dotenv import load_dotenv
-from modules.config import ENVs
 
 def load_payee_analysis():
     """Load the payee analysis data."""
