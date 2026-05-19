@@ -101,3 +101,18 @@ def test_validate_user_input_rejects_non_numeric():
     from modules.account_mapper import validate_user_input
 
     assert validate_user_input("abc", [], {}, "actual_account_id") is None
+
+
+def test_save_mapping_failure_is_fatal(tmp_path):
+    from modules.account_mapper import save_mapping
+
+    with pytest.raises(IsADirectoryError):
+        save_mapping(
+            {
+                "akahu_accounts": {},
+                "actual_accounts": {},
+                "ynab_accounts": {},
+                "mapping": {},
+            },
+            mapping_file=tmp_path,
+        )

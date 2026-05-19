@@ -554,6 +554,7 @@ def save_mapping(data_to_save, mapping_file="akahu_budget_mapping.json"):
             f.write(serialized_data)
     except Exception as e:
         logging.error(f"Failed to save mapping: {e}")
+        raise
 
 
 def check_for_changes(

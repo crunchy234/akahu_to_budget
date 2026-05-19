@@ -16,6 +16,7 @@ import logging
 import argparse
 import signal
 import sys
+import httpx
 import requests
 from actual import Actual
 
@@ -57,7 +58,7 @@ def get_actual_client():
             ) as client:
                 logging.info(f"Connected to AB: {client}")
                 yield client
-        except requests.exceptions.RequestException as e:
+        except (httpx.HTTPError, requests.exceptions.RequestException) as e:
             logging.error(f"Failed to connect to Actual server: {str(e)}")
             if hasattr(e, 'response') and e.response is not None:
                 logging.error(f"Response status: {e.response.status_code}")

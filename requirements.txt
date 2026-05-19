@@ -1,6 +1,7 @@
 actualpy
 python-dotenv
 requests
+httpx
 openai
 fuzzywuzzy
 pandas
