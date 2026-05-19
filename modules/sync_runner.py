@@ -13,7 +13,6 @@ load_dotenv()
 
 from modules.account_fetcher import trigger_akahu_refresh
 from modules.mapping_store import load_existing_mapping
-from modules.config import AKAHU_ENDPOINT, AKAHU_HEADERS
 from modules.config import RUN_SYNC_TO_AB, RUN_SYNC_TO_YNAB
 from modules.config import ENVs
 from modules.sync_handler import sync_to_ab, sync_to_ynab

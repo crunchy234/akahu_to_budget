@@ -49,11 +49,12 @@ def get_payee_data():
             'categories': {},
             'total_amount': 0
         })
+        skipped_manual_transactions = 0
         
         for txn in transactions:
             # Only analyze transactions with imported_description since rules operate on imported data
             if txn.imported_description is None:
-                logging.info("Skipping transaction with no imported_description")
+                skipped_manual_transactions += 1
                 # Skip manual transactions - they don't need import rules
                 continue
             if txn.imported_description == '':
@@ -77,6 +78,12 @@ def get_payee_data():
             if category not in payee_data[payee]['categories']:
                 payee_data[payee]['categories'][category] = 0
             payee_data[payee]['categories'][category] += 1
+
+        if skipped_manual_transactions:
+            logging.info(
+                "Skipped %s transactions with no imported_description",
+                skipped_manual_transactions,
+            )
         
         return dict(payee_data)
 

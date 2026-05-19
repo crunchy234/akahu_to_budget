@@ -87,7 +87,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-If you want suggested matches while preparing account mappings, also install the setup dependencies:
+Before preparing account mappings, install the setup dependencies:
 
 ```bash
 pip install -r requirements_setup.txt

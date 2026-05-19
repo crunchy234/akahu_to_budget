@@ -14,4 +14,3 @@ EXPOSE 5000
 
 ENTRYPOINT ["python", "sync_cli.py"]
 # Default to a one-off sync. Use host cron/systemd timers for scheduled syncs.
-CMD ["--sync"]

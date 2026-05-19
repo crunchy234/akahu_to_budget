@@ -19,7 +19,6 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
 
     parser = argparse.ArgumentParser(description="Perform direct sync.")
-    parser.add_argument("--sync", action="store_true", help="Perform direct sync and exit.")
     parser.add_argument(
         "--accounts",
         help=(
