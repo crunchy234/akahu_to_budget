@@ -1,0 +1,93 @@
+"""Shared non-Flask sync runner for CLI and web entrypoints."""
+
+from contextlib import contextmanager
+import logging
+
+from dotenv import load_dotenv
+import httpx
+import requests
+from actual import Actual
+
+# Populate os.environ before modules.config reads environment variables.
+load_dotenv()
+
+from modules.account_fetcher import trigger_akahu_refresh
+from modules.mapping_store import load_existing_mapping
+from modules.config import AKAHU_ENDPOINT, AKAHU_HEADERS
+from modules.config import RUN_SYNC_TO_AB, RUN_SYNC_TO_YNAB
+from modules.config import ENVs
+from modules.sync_handler import sync_to_ab, sync_to_ynab
+
+
+def configure_logging():
+    """Configure logging once for command-line and Flask entrypoints."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler("app.log"),
+            logging.StreamHandler(),
+        ],
+    )
+
+
+@contextmanager
+def get_actual_client():
+    """Yield an Actual client if Actual sync is enabled; otherwise yield None."""
+    if RUN_SYNC_TO_AB:
+        try:
+            logging.info(
+                f"Attempting to connect to Actual server at {ENVs['ACTUAL_SERVER_URL']}"
+            )
+
+            with Actual(
+                base_url=ENVs["ACTUAL_SERVER_URL"],
+                password=ENVs["ACTUAL_PASSWORD"],
+                file=ENVs["ACTUAL_SYNC_ID"],
+                encryption_password=ENVs["ACTUAL_ENCRYPTION_KEY"],
+            ) as client:
+                logging.info(f"Connected to AB: {client}")
+                yield client
+        except (httpx.HTTPError, requests.exceptions.RequestException) as e:
+            logging.error(f"Failed to connect to Actual server: {str(e)}")
+            if hasattr(e, "response") and e.response is not None:
+                logging.error(f"Response status: {e.response.status_code}")
+                logging.error(f"Response headers: {dict(e.response.headers)}")
+                logging.error(f"Response content: {e.response.text[:500]}")
+            raise RuntimeError(
+                f"Failed to connect to Actual server: {str(e)}"
+            ) from None
+    else:
+        yield None
+
+
+def run_sync(account_ids=None, debug_mode=None):
+    """Run Akahu sync to enabled budget targets."""
+    logging.info("Starting direct sync...")
+    actual_count = ynab_count = 0
+
+    trigger_akahu_refresh()
+
+    _, _, _, mapping_list = load_existing_mapping()
+
+    if account_ids:
+        filtered_mapping = {k: v for k, v in mapping_list.items() if k in account_ids}
+        if not filtered_mapping:
+            logging.warning(f"No matching accounts found for IDs: {account_ids}")
+            return
+        logging.info(f"Syncing specific accounts: {', '.join(account_ids)}")
+        mapping_list = filtered_mapping
+
+    with get_actual_client() as actual_client:
+        if RUN_SYNC_TO_AB and actual_client:
+            actual_client.download_budget()
+            actual_count = sync_to_ab(actual_client, mapping_list, debug_mode=debug_mode)
+            logging.info(f"Synced {actual_count} accounts to Actual Budget.")
+
+        if RUN_SYNC_TO_YNAB:
+            ynab_count = sync_to_ynab(mapping_list, debug_mode=debug_mode)
+            logging.info(f"Synced {ynab_count} accounts to YNAB.")
+
+    logging.info(
+        f"Sync completed. Actual count: {actual_count}, YNAB count: {ynab_count}"
+    )

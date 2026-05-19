@@ -1,7 +1,7 @@
 from datetime import datetime
 import logging
 from modules.account_fetcher import get_akahu_balance, get_ynab_balance
-from modules.account_mapper import load_existing_mapping, save_mapping
+from modules.mapping_store import load_existing_mapping, save_mapping
 from modules.transaction_handler import (
     clean_txn_for_ynab,
     create_adjustment_txn_ynab,

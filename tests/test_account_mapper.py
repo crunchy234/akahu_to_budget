@@ -104,7 +104,7 @@ def test_validate_user_input_rejects_non_numeric():
 
 
 def test_save_mapping_failure_is_fatal(tmp_path):
-    from modules.account_mapper import save_mapping
+    from modules.mapping_store import save_mapping
 
     with pytest.raises(IsADirectoryError):
         save_mapping(

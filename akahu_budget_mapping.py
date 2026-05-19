@@ -28,13 +28,11 @@ from modules import (
     fetch_ynab_accounts
 )
 from modules.account_mapper import (
-    load_existing_mapping,
     merge_and_update_mapping,
     match_accounts,
-    save_mapping,
     check_for_changes,
-    remove_seq
 )
+from modules.mapping_store import load_existing_mapping, save_mapping, remove_seq
 from modules.config import RUN_SYNC_TO_YNAB, RUN_SYNC_TO_AB
 
 

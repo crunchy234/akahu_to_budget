@@ -19,7 +19,7 @@ echo "Starting sync loop..."
 
 while true; do
     echo "=== Sync started at $(date -u) ==="
-    python /app/flask_app.py --sync || echo "Sync failed (will retry in ${SYNC_INTERVAL}s)"
+    python /app/sync_cli.py || echo "Sync failed (will retry in ${SYNC_INTERVAL}s)"
     echo "=== Sync finished, sleeping ${SYNC_INTERVAL}s ==="
     sleep "$SYNC_INTERVAL"
 done
