@@ -3,19 +3,40 @@
 
 import json
 import logging
+import os
 from collections import defaultdict
 from actual import Actual
 from actual.queries import get_transactions, get_categories
-from modules.config import ENVs
+from dotenv import load_dotenv
+
+
+def get_actual_env():
+    """Load the Actual credentials needed by this standalone tool."""
+    load_dotenv()
+    required_envs = [
+        'ACTUAL_SERVER_URL',
+        'ACTUAL_PASSWORD',
+        'ACTUAL_ENCRYPTION_KEY',
+        'ACTUAL_SYNC_ID',
+    ]
+    envs = {key: os.getenv(key) for key in required_envs}
+    missing = [key for key, value in envs.items() if value is None]
+    if missing:
+        raise EnvironmentError(
+            f"Missing required environment variable(s): {', '.join(missing)}"
+        )
+    return envs
 
 def get_payee_data():
     """Extract payee data with transaction counts and categories."""
+    envs = get_actual_env()
     with Actual(
-        base_url=ENVs['ACTUAL_SERVER_URL'],
-        password=ENVs['ACTUAL_PASSWORD'],
-        file=ENVs['ACTUAL_SYNC_ID'],
-        encryption_password=ENVs['ACTUAL_ENCRYPTION_KEY']
+        base_url=envs['ACTUAL_SERVER_URL'],
+        password=envs['ACTUAL_PASSWORD'],
+        file=envs['ACTUAL_SYNC_ID'],
+        encryption_password=envs['ACTUAL_ENCRYPTION_KEY']
     ) as actual:
+        actual.download_budget()
         transactions = get_transactions(actual.session)
         categories = get_categories(actual.session)
         

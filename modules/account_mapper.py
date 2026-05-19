@@ -213,7 +213,7 @@ def get_openai_match_suggestion(
             api_key=os.getenv("OPENAI_API_KEY"),
         )
         response = client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", default="gpt-4"),
+            model=os.getenv("OPENAI_MODEL", default="gpt-5.2"),
             messages=[
                 {
                     "role": "system",

@@ -113,13 +113,16 @@ def call_openai_api(prompt):
     openai_key = os.getenv('OPENAI_API_KEY')
     if not openai_key:
         raise ValueError("OPENAI_API_KEY not found in environment variables")
-    
-    openai.api_key = openai_key
+
+    client = openai.OpenAI(
+        base_url=os.getenv("OPENAI_BASE_URL", None),
+        api_key=openai_key,
+    )
     
     logging.info("Calling OpenAI API to generate consolidation rules...")
     
-    response = openai.chat.completions.create(
-        model="gpt-3.5-turbo",
+    response = client.chat.completions.create(
+        model=os.getenv("OPENAI_MODEL", default="gpt-5.2"),
         messages=[
             {"role": "system", "content": "You are a financial data analyst specializing in payee name standardization."},
             {"role": "user", "content": prompt}

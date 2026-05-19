@@ -10,7 +10,15 @@ fi
 
 echo "Reading configuration from /data/options.json"
 
-eval "$(jq -r 'to_entries | map(select(.key != "sync_interval")) | map("export \(.key)=\"\(.value|tostring)\"") | .[]' /data/options.json)"
+while IFS= read -r entry; do
+    key=$(printf '%s' "$entry" | base64 -d | jq -r '.key')
+    value=$(printf '%s' "$entry" | base64 -d | jq -r '.value | tostring')
+    if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "ERROR: Invalid option key for environment export: $key"
+        exit 1
+    fi
+    export "$key=$value"
+done < <(jq -r 'to_entries[] | select(.key != "sync_interval") | @base64' /data/options.json)
 
 SYNC_INTERVAL=$(jq -r '.sync_interval // 86400' /data/options.json)
 

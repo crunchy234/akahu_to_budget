@@ -45,6 +45,8 @@ def load_existing_mapping(mapping_file="akahu_budget_mapping.json", generate_stu
                 mapping,
             )
     except FileNotFoundError:
+        if not generate_stub:
+            raise
         logging.warning("Mapping file not found - first run ever?")
         generate_mapping_stub(mapping_file=mapping_file)
         return load_existing_mapping(mapping_file=mapping_file, generate_stub=False)
