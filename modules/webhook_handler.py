@@ -8,9 +8,10 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 import pandas as pd
 
-from modules.account_mapper import load_existing_mapping
+from modules.mapping_store import load_existing_mapping
 from modules.config import RUN_SYNC_TO_AB, RUN_SYNC_TO_YNAB, RUN_SYNC_TO_SURE, YNAB_ENDPOINT, YNAB_HEADERS
 from modules.sync_handler import sync_to_ab, sync_to_ynab
+
 from modules.sync_status import generate_sync_report
 from modules.transaction_handler import (
     load_transactions_into_actual,
@@ -60,7 +61,7 @@ def create_flask_app(actual_client, mapping_list, env_vars):
             <p>This script (akahu_to_budget.py) is deprecated in favor of flask_app.py</p>
             <p>While this script still works, flask_app.py provides additional features:</p>
             <ul>
-                <li>CLI sync support (python flask_app.py --sync)</li>
+                <li>CLI sync support (python sync_cli.py)</li>
                 <li>Better error handling</li>
                 <li>Signal handling for graceful shutdown</li>
             </ul>

@@ -12,7 +12,5 @@ USER app
 
 EXPOSE 5000
 
-ENTRYPOINT ["python", "flask_app.py"]
-# Default to a one-off sync. Override with an empty arg to launch the webhook
-# server instead, e.g. `podman run --rm -p 5000:5000 <image> ''`.
-CMD ["--sync"]
+ENTRYPOINT ["python", "sync_cli.py"]
+# Default to a one-off sync. Use host cron/systemd timers for scheduled syncs.

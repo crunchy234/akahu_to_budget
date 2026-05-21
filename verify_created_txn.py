@@ -11,7 +11,7 @@ from actual.database import Transactions, Accounts
 from actual.queries import get_transactions, create_transaction
 
 from modules.transaction_tester import run_transaction_tests
-from modules.account_mapper import load_existing_mapping
+from modules.mapping_store import load_existing_mapping
 
 def disable_sqlalchemy_logging():
     """Completely disable SQLAlchemy logging."""

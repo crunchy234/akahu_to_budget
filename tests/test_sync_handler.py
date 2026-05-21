@@ -127,3 +127,38 @@ def test_tracking_account_mismatched_balances_creates_adjustment(mocker):
     assert positional[1] == "ynab_acc"
     assert positional[2] == 100_500
     assert positional[3] == 95_000
+
+
+def test_ynab_unknown_account_type_fails_loud(mocker):
+    from modules import sync_handler
+
+    mocker.patch.object(sync_handler, "get_akahu_balance")
+    mapping = {
+        "acc_bad": {
+            "akahu_name": "Bad Account",
+            "ynab_budget_id": "bud",
+            "ynab_account_id": "ynab_acc",
+            "ynab_account_name": "YNAB",
+            "account_type": "Unexpected",
+        }
+    }
+
+    with pytest.raises(ValueError, match="Unknown account type"):
+        sync_handler.sync_to_ynab(mapping)
+
+
+def test_actual_unknown_account_type_fails_loud():
+    from modules import sync_handler
+
+    mapping = {
+        "acc_bad": {
+            "akahu_name": "Bad Account",
+            "actual_budget_id": "bud",
+            "actual_account_id": "actual_acc",
+            "actual_account_name": "Actual",
+            "account_type": "Unexpected",
+        }
+    }
+
+    with pytest.raises(ValueError, match="Unknown account type"):
+        sync_handler.sync_to_ab(object(), mapping)
