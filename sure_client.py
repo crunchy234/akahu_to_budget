@@ -172,7 +172,7 @@ puts "SUCCESS: Imported #{{created_count}} new transactions."
     logger.info(f"Executing batch push of {len(transactions)} transactions via {runtime} to {container_name}...")
     
     # We encode the string to bytes here so it safely pipes into the subprocess stdin
-    result = subprocess.run(cmd, input=ruby_code.encode('utf-8'), capture_output=True, text=True)
+    result = subprocess.run(cmd, input=ruby_code, capture_output=True, text=True)
     
     if result.returncode != 0:
         logger.error(f"Sidecar execution failed:\n{result.stderr}")
