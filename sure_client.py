@@ -2,10 +2,12 @@
 
 import logging
 import os
+import json
+import subprocess
+import shutil
 import zoneinfo
-from datetime import datetime, timezone
-
 import requests
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +16,10 @@ logger = logging.getLogger(__name__)
 SURE_DEFAULT_URL = "http://127.0.0.1:8084/api/v1/transactions"
 SURE_REQUEST_TIMEOUT_SECONDS = 15
 NZ_TIMEZONE = zoneinfo.ZoneInfo("Pacific/Auckland")
+
+# --- THE TOGGLE SWITCH ---
+# Set SURE_USE_SIDECAR=false in your .env later to instantly revert to the HTTP API
+USE_SIDECAR = os.environ.get("SURE_USE_SIDECAR", "true").lower() == "true"
 
 
 def _akahu_to_sure_date(raw_date):
@@ -31,14 +37,30 @@ def _akahu_to_sure_date(raw_date):
     return utc_time.astimezone(NZ_TIMEZONE).strftime("%Y-%m-%d")
 
 
-def push_to_sure(transaction, sure_account_id):
-    """Post a single Akahu transaction dict to Sure Finance."""
+def push_transactions(transactions, sure_account_id):
+    """
+    Main entry point. Routes to either the Sidecar (batch) or API (loop) 
+    based on the USE_SIDECAR toggle.
+    """
+    if not transactions:
+        return 0
+
+    if USE_SIDECAR:
+        return _push_via_sidecar(transactions, sure_account_id)
+    else:
+        # Fallback to the original method: looping over the API one by one
+        success_count = 0
+        for txn in transactions:
+            _push_via_api(txn, sure_account_id)
+            success_count += 1
+        return success_count
+
+
+def _push_via_api(transaction, sure_account_id):
+    """The ORIGINAL HTTP API method: Post a single Akahu transaction dict to Sure Finance."""
     sure_api_token = os.environ.get("SURE_API_TOKEN")
     if not sure_api_token:
-        raise RuntimeError(
-            "SURE_API_TOKEN is missing — modules.config should have caught this. "
-            "Is RUN_SYNC_TO_SURE set correctly?"
-        )
+        raise RuntimeError("SURE_API_TOKEN is missing. Is RUN_SYNC_TO_SURE set correctly?")
 
     sure_url = os.environ.get("SURE_API_URL", SURE_DEFAULT_URL)
 
@@ -63,6 +85,7 @@ def push_to_sure(transaction, sure_account_id):
             "amount": amount,
             "name": name,
             "notes": f"Akahu ID: {transaction.get('_id', '')}",
+            "external_id": transaction.get("_id", ""), # Ready for when the API is fixed!
         }
     }
 
@@ -74,3 +97,89 @@ def push_to_sure(transaction, sure_account_id):
     )
     response.raise_for_status()
     logger.info(f"Sure sync success: {name} for ${amount}")
+
+
+def _push_via_sidecar(transactions, sure_account_id):
+    """The TEMPORARY Batch Docker method."""
+    payload_txns = []
+    for t in transactions:
+        payload_txns.append({
+            "date": _akahu_to_sure_date(t.get("date")),
+            "amount": -t.get("amount", 0),
+            "name": t.get("merchant_name") or t.get("description") or "Unknown Transaction",
+            "external_id": t.get("_id", "")
+        })
+    
+    payload = {"account_id": sure_account_id, "transactions": payload_txns}
+    json_data = json.dumps(payload)
+
+    # We template the JSON directly into the Ruby script and pass the whole thing via stdin.
+    # Note: Double braces {{ }} are used to escape Python's f-string formatting for Ruby interpolation.
+    ruby_code = f"""
+require 'json'
+
+payload = JSON.parse(<<~'JSON_PAYLOAD'
+{json_data}
+JSON_PAYLOAD
+)
+
+account = Account.find(payload['account_id'])
+created_count = 0
+
+payload['transactions'].each do |txn|
+  entry = account.entries.find_or_initialize_by(
+    external_id: txn['external_id'],
+    source: "akahu"
+  )
+
+  if entry.new_record?
+    entry.assign_attributes(
+      date: txn['date'],
+      amount: txn['amount'],
+      name: txn['name'],
+      currency: "NZD",
+      entryable_type: "Transaction"
+    )
+    
+    # The 'nature' attribute is no longer used for Transaction in recent versions
+    entry.build_entryable unless entry.entryable
+    
+    entry.save!
+    created_count += 1
+    puts " -> Created: #{{txn['name']}} (#{{txn['external_id']}})"
+  else
+    puts " -> Skipped (already exists): #{{txn['external_id']}}"
+  end
+end
+
+puts "SUCCESS: Imported #{{created_count}} new transactions."
+"""
+
+    runtime = os.environ.get("SURE_CONTAINER_RUNTIME")
+    if not runtime:
+        runtime = shutil.which("podman") or shutil.which("docker")
+        
+    if not runtime:
+        raise RuntimeError(
+            "Neither podman nor docker found in PATH. "
+            "If you are running via systemd/cron, try setting SURE_CONTAINER_RUNTIME in your .env"
+        )
+
+    container_name = os.environ.get("SURE_CONTAINER_NAME", "sure-core")
+
+    # Pass "-" to rails runner so it reads our templated string from stdin
+    cmd = [runtime, "exec", "-i", container_name, "bin/rails", "runner", "-"]
+    logger.info(f"Executing batch push of {len(transactions)} transactions via {runtime} to {container_name}...")
+    
+    # We encode the string to bytes here so it safely pipes into the subprocess stdin
+    result = subprocess.run(cmd, input=ruby_code.encode('utf-8'), capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        logger.error(f"Sidecar execution failed:\n{result.stderr}")
+        raise RuntimeError(f"Rails runner sidecar failed: {result.stderr}")
+    
+    for line in result.stdout.splitlines():
+        if line.strip():
+            logger.info(f"Sure DB: {line.strip()}")
+            
+    return len(transactions)

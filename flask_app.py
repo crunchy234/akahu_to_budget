@@ -111,16 +111,16 @@ def sync_to_sure(mapping_list):
 
         account_failed = False
         if akahu_df is not None and not akahu_df.empty:
-            for _, txn_row in akahu_df.iterrows():
-                txn_dict = txn_row.to_dict()
-                try:
-                    sure_client.push_to_sure(txn_dict, sure_id)
-                    sure_count += 1
-                except Exception as e:
-                    # Don't advance the watermark below — the failed txn must be
-                    # retried next run, otherwise it's silently dropped forever.
-                    logging.error(f"Error pushing transaction to Sure for '{akahu_name}': {e}")
-                    account_failed = True
+            # Gather the batch
+            transactions = [row.to_dict() for _, row in akahu_df.iterrows()]
+            
+            try:
+                # Pass the batch to our new router (it handles sidecar vs API internally)
+                sure_client.push_transactions(transactions, sure_id)
+                sure_count += len(transactions)
+            except Exception as e:
+                logging.error(f"Error pushing batch to Sure for '{akahu_name}': {e}")
+                account_failed = True
 
         if account_failed:
             logging.warning(
