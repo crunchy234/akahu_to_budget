@@ -178,8 +178,23 @@ puts "SUCCESS: Imported #{{created_count}} new transactions."
         logger.error(f"Sidecar execution failed:\n{result.stderr}")
         raise RuntimeError(f"Rails runner sidecar failed: {result.stderr}")
     
+    # Filter out explicitly known noisy Rails boot warnings
+    noisy_markers = [
+        "[SKYLIGHT]", 
+        "[ProviderLoader]", 
+        "[OmniAuth]", 
+        "No SSO providers"
+    ]
+    
     for line in result.stdout.splitlines():
-        if line.strip():
-            logger.info(f"Sure DB: {line.strip()}")
+        cleaned_line = line.strip()
+        if not cleaned_line:
+            continue
+            
+        # If any of the noisy markers are in the line, silently skip it
+        if any(marker in cleaned_line for marker in noisy_markers):
+            continue
+            
+        logger.info(f"Sure DB: {cleaned_line}")
             
     return len(transactions)
