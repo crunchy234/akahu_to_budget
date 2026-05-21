@@ -163,3 +163,34 @@ There are some tests to validate the API is still working.  You can probably ign
 
 I set up the OpenAI key for mapping accounts more out of self-amusement.  I have also toyed with the idea of using it to clean payees, assign transactions to categories, etc.
 For now it's not really doing anything.
+
+
+# Sure Finance Sync & Deduplication Sidecar
+
+This script natively supports pushing Akahu transactions to a self-hosted instance of [Sure Finance](https://github.com/we-promise/sure). However, there is currently an architectural quirk in the Sure Finance API that requires a temporary workaround for deduplication.
+
+### The Problem
+When syncing bank transactions, this script uses a 7-day lookback window to ensure pending transactions aren't missed when they finally settle. 
+
+While Actual Budget and YNAB natively handle this overlapping window by deduplicating payloads via an `imported_id`, the Sure Finance `POST /api/v1/transactions` endpoint currently drops `external_id` from incoming payloads due to strong parameters. This causes the Sure API to blindly duplicate transactions on every daily sync.
+
+### The Solution (The Docker Sidecar)
+To achieve native deduplication, this integration bypasses the HTTP API and pipes a self-contained Ruby script directly into the Sure Finance Rails container. This allows the script to utilize Rails' internal `find_or_initialize_by(external_id:)` logic, guaranteeing perfect database-level deduplication.
+
+### Configuration
+By default, the script looks for the `docker` or `podman` executable and attempts to execute against a container named `sure-core`. 
+
+If you are running this sync script via `systemd` or `cron` (where the `$PATH` is restricted), or if your container is named differently, set these variables in your `.env` file:
+```env
+SURE_CONTAINER_RUNTIME=/path/to/your/docker  # e.g., /usr/bin/docker
+SURE_CONTAINER_NAME=sure-core                # The name of your Rails container
+SURE_USE_SIDECAR=true                        # Set to false to revert to the HTTP API - useful once external_id accessible via API
+```
+
+### The Future: Removing the Sidecar
+There is an active plan to submit a PR to the upstream Sure Finance repository to whitelist `:external_id` in their API controllers. 
+
+Once Sure Finance updates their API to accept `external_id` natively:
+1. Users can simply set `SURE_USE_SIDECAR=false` in their `.env` file.
+2. The Python script will instantly stop using Docker and revert to standard, idempotent HTTP `POST` requests.
+3. The sidecar logic (`_push_via_sidecar`) can be safely deleted from `sure_client.py`.
