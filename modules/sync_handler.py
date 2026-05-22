@@ -21,7 +21,6 @@ from modules.config import (
     DEBUG_SYNC,
 )
 
-
 def get_account_priority(account_entry):
     """
     Determine processing priority for accounts.
