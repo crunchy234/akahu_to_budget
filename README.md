@@ -14,25 +14,13 @@ created for AB (e.g. Payees, failing to trigger rules).  Please raise bugs.
 # Setup
 
 1. Create an Akahu account and an Akahu app: [https://my.akahu.nz/login](https://my.akahu.nz/login)
-2. Set up an OpenAI account and get an API key: [https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys) (OPTIONAL)
+2. Optionally set up an OpenAI account and get an API key for smarter account mapping: [https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys)
 3. Set up an Actual Budget Server and get the server URL, password, encryption key, and sync ID: [https://actualbudget.org/](https://actualbudget.org/).  I used PikaPods
 4. And/OR in YNAB get a bearer token and the budget ID: [https://api.youneedabudget.com/](https://api.youneedabudget.com/)
 5. Check out this repository
 6. Create a virtual environment and run `pip install -r requirements.txt`
-7. Create a `.env` file in the root of the project with the following variables:
-```
-ACTUAL_SERVER_URL="https://<your actual budget host>/"
-ACTUAL_PASSWORD="your actual budget password"
-ACTUAL_ENCRYPTION_KEY="your actual budget encryption key"
-ACTUAL_SYNC_ID="the Sync ID of the budget you want to sync"
-AKAHU_APP_TOKEN="your akahu app token"
-AKAHU_PUBLIC_KEY="Reserved for Future Use"
-AKAHU_USER_TOKEN="your akahu user token"
-FLASK_ENV="development"
-OPENAI_API_KEY="your openai key"
-YNAB_BEARER_TOKEN="your ynab bearer token"
-YNAB_BUDGET_ID="The budget you want to sync"
-```
+7. Create a `.env` file in the root of the project. (see [.env.example](./.env.example))
+
 Note that the OPENAI key is optional.  I included it more for fun.  It makes the matching a bit smarter.  In the future
 I might make it so it tries to guess your category based on the transaction memo.
 
@@ -99,6 +87,18 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Before preparing account mappings, install the setup dependencies:
+
+```bash
+pip install -r requirements_setup.txt
+```
+
+If you want to run the webhook server, also install the web dependencies:
+
+```bash
+pip install -r requirements_web.txt
+```
+
 # Preparing to run the script
 
 Run `python akahu_budget_mapping.py`
@@ -121,7 +121,7 @@ You will likely never need to run this again unless you want to change the mappi
 Run the script using:
 ```bash
 # For one-time sync (recommended for most users):
-python flask_app.py --sync
+python sync_cli.py
 
 # For running the webhook server:
 python flask_app.py
@@ -132,7 +132,36 @@ This connects to Akahu, gets the transactions, and syncs them to Actual Budget a
 When running the webhook server, the first sync is triggered automatically on startup. For subsequent syncs, use the web interface at http://localhost:5000/sync.
 There is minimal security, mostly because the webhooks don't take parameters so the worst someone can do is sync your budget prematurely.
 
-NOTE TO EXISTING USERS: If you're been using akahu_to_budget.py, we have finished the migration to flask_app.py.  You will need to update your scripts.
+NOTE TO EXISTING USERS: If you've been using akahu_to_budget.py, we have finished the migration to `sync_cli.py` for one-time syncs and `flask_app.py` for the webhook server. `python flask_app.py --sync` is deprecated and may be removed in a future version.
+
+# Running in a container
+
+The repository ships a `Containerfile` (works with both `docker` and `podman`)
+and publishes an image to GitHub Container Registry on every push to `main`
+and on tagged releases:
+
+- `ghcr.io/corrin/akahu_to_budget:latest` — latest `main`
+- `ghcr.io/corrin/akahu_to_budget:v1.2.3` — specific tag
+
+You still need to provide your `.env` file and the `akahu_budget_mapping.json`
+you generated during setup. Mount them both into the container:
+
+```bash
+podman run --rm \
+  --env-file ./.env \
+  -v ./akahu_budget_mapping.json:/app/akahu_budget_mapping.json \
+  ghcr.io/corrin/akahu_to_budget:latest
+```
+
+The container image runs one-off syncs and does not include Flask. Use host cron
+or a systemd timer for scheduled container syncs.
+
+Substitute `docker` for `podman` if you prefer. To build locally instead of
+pulling:
+
+```bash
+podman build -t akahu_to_budget:local -f Containerfile .
+```
 
 # Running Tests
 
@@ -142,3 +171,34 @@ There are some tests to validate the API is still working.  You can probably ign
 
 I set up the OpenAI key for mapping accounts more out of self-amusement.  I have also toyed with the idea of using it to clean payees, assign transactions to categories, etc.
 For now it's not really doing anything.
+
+
+# Sure Finance Sync & Deduplication Sidecar
+
+This script natively supports pushing Akahu transactions to a self-hosted instance of [Sure Finance](https://github.com/we-promise/sure). However, there is currently an architectural quirk in the Sure Finance API that requires a temporary workaround for deduplication.
+
+### The Problem
+When syncing bank transactions, this script uses a 7-day lookback window to ensure pending transactions aren't missed when they finally settle. 
+
+While Actual Budget and YNAB natively handle this overlapping window by deduplicating payloads via an `imported_id`, the Sure Finance `POST /api/v1/transactions` endpoint currently drops `external_id` from incoming payloads due to strong parameters. This causes the Sure API to blindly duplicate transactions on every daily sync.
+
+### The Solution (The Docker Sidecar)
+To achieve native deduplication, this integration bypasses the HTTP API and pipes a self-contained Ruby script directly into the Sure Finance Rails container. This allows the script to utilize Rails' internal `find_or_initialize_by(external_id:)` logic, guaranteeing perfect database-level deduplication.
+
+### Configuration
+By default, the script looks for the `docker` or `podman` executable and attempts to execute against a container named `sure-core`. 
+
+If you are running this sync script via `systemd` or `cron` (where the `$PATH` is restricted), or if your container is named differently, set these variables in your `.env` file:
+```env
+SURE_CONTAINER_RUNTIME=/path/to/your/docker  # e.g., /usr/bin/docker
+SURE_CONTAINER_NAME=sure-core                # The name of your Rails container
+SURE_USE_SIDECAR=true                        # Set to false to revert to the HTTP API - useful once external_id accessible via API
+```
+
+### The Future: Removing the Sidecar
+There is an active plan to submit a PR to the upstream Sure Finance repository to whitelist `:external_id` in their API controllers. 
+
+Once Sure Finance updates their API to accept `external_id` natively:
+1. Users can simply set `SURE_USE_SIDECAR=false` in their `.env` file.
+2. The Python script will instantly stop using Docker and revert to standard, idempotent HTTP `POST` requests.
+3. The sidecar logic (`_push_via_sidecar`) can be safely deleted from `sure_client.py`.

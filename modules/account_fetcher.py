@@ -3,8 +3,10 @@
 import os
 import logging
 import requests
-from actual.queries import get_accounts, get_account
-from modules.config import AKAHU_ENDPOINT, AKAHU_HEADERS, YNAB_ENDPOINT, YNAB_HEADERS
+from modules.config import AKAHU_ENDPOINT, AKAHU_HEADERS, YNAB_ENDPOINT, YNAB_HEADERS, RUN_SYNC_TO_AB
+
+if RUN_SYNC_TO_AB:
+    from actual.queries import get_accounts, get_account
 
 
 def is_simple_value(value):
@@ -103,6 +105,30 @@ def fetch_ynab_accounts():
         raise
 
 
+def trigger_akahu_refresh():
+    """Ask Akahu to refresh all connected accounts from the banks.
+
+    Akahu refreshes from banks on its own schedule (roughly daily). Without
+    this nudge a manual sync just replays whatever Akahu already has, which
+    in practice is usually several hours stale — and the symptom reported in
+    issue #21 was exactly that.
+
+    Best-effort: on failure we warn and continue, so a flaky /refresh
+    endpoint never blocks the sync itself. Any real auth/connectivity
+    problem will surface loudly on the very next Akahu API call anyway.
+    """
+    try:
+        response = requests.post(
+            f"{AKAHU_ENDPOINT}/refresh", headers=AKAHU_HEADERS, timeout=30
+        )
+        response.raise_for_status()
+        logging.info("Triggered Akahu refresh of all connected accounts.")
+    except requests.RequestException as e:
+        logging.warning(
+            f"Akahu refresh request failed (continuing with sync): {e}"
+        )
+
+
 def get_akahu_balance(akahu_account_id, akahu_endpoint, akahu_headers):
     """Fetch the balance for an Akahu account."""
     try:
@@ -110,14 +136,19 @@ def get_akahu_balance(akahu_account_id, akahu_endpoint, akahu_headers):
             f"{akahu_endpoint}/accounts/{akahu_account_id}", headers=akahu_headers
         )
         if response.status_code != 200:
-            logging.error(
+            message = (
                 f"Failed to fetch balance for account {akahu_account_id}. "
                 f"Status code: {response.status_code}, Response: {response.text}"
             )
-            return None
+            logging.error(message)
+            raise RuntimeError(message)
         account_data = response.json()
         item = account_data.get("item", {})
         balance = item.get("balance", {}).get("current")
+        if balance is None:
+            raise RuntimeError(
+                f"Akahu balance response for account {akahu_account_id} did not include a current balance."
+            )
         return balance
     except Exception as e:
         logging.error(f"Error fetching balance for account {akahu_account_id}: {e}")
@@ -131,8 +162,7 @@ def get_actual_balance(actual, actual_account_id):
         with actual.session as session:
             account = get_account(session, actual_account_id)
             if account is None:
-                logging.error(f"Account '{actual_account_id}' not found.")
-                return None
+                raise RuntimeError(f"Actual account '{actual_account_id}' not found.")
 
             # Convert from dollars to cents since Actual stores balances in dollars
             total_balance = int(account.balance * 100)

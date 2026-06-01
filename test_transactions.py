@@ -5,7 +5,7 @@ import sys
 from actual import Actual
 from dotenv import load_dotenv
 from modules.transaction_tester import run_transaction_tests
-from modules.account_mapper import load_existing_mapping
+from modules.mapping_store import load_existing_mapping
 
 def disable_sqlalchemy_logging():
     """Completely disable SQLAlchemy logging."""

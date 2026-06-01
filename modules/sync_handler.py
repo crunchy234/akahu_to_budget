@@ -1,7 +1,7 @@
 from datetime import datetime
 import logging
 from modules.account_fetcher import get_akahu_balance, get_ynab_balance
-from modules.account_mapper import load_existing_mapping, save_mapping
+from modules.mapping_store import load_existing_mapping, save_mapping
 from modules.transaction_handler import (
     clean_txn_for_ynab,
     create_adjustment_txn_ynab,
@@ -20,8 +20,6 @@ from modules.config import (
     FORCE_REFRESH,
     DEBUG_SYNC,
 )
-from actual.protobuf_models import SyncRequest
-
 
 def get_account_priority(account_entry):
     """
@@ -35,8 +33,7 @@ def get_account_priority(account_entry):
     elif account_type == "Tracking":
         return 1
     else:
-        logging.warning(f"Unknown account type: {account_type}, treating as Tracking")
-        return 1
+        raise ValueError(f"Unknown account type: {account_type}")
 
 
 def update_mapping_timestamps(
@@ -170,7 +167,7 @@ def sync_to_ynab(mapping_list, debug_mode=None):
                 )
                 successful_syncs.add(akahu_account_id)
         else:
-            logging.error(f"Unknown account type for Akahu account: {akahu_account_id}")
+            raise ValueError(f"Unknown account type for Akahu account: {akahu_account_id}")
 
     if successful_syncs:
         update_mapping_timestamps(successful_ynab_syncs=successful_syncs)
@@ -238,11 +235,6 @@ def sync_to_ab(actual, mapping_list, debug_mode=None):
             akahu_balance = get_akahu_balance(
                 akahu_account_id, AKAHU_ENDPOINT, AKAHU_HEADERS
             )
-            if akahu_balance is None:
-                logging.error(
-                    f"Could not get balance for tracking account {mapping_entry['akahu_name']}"
-                )
-                continue
 
             mapping_entry["akahu_balance"] = akahu_balance
             transactions_uploaded += handle_tracking_account_actual(
@@ -261,8 +253,7 @@ def sync_to_ab(actual, mapping_list, debug_mode=None):
                 )
                 successful_ab_syncs.add(akahu_account_id)
         else:
-            logging.error(f"Unknown account type for Akahu account: {akahu_account_id}")
-            raise
+            raise ValueError(f"Unknown account type for Akahu account: {akahu_account_id}")
 
     # Commit all changes after processing all accounts
     any_transactions_processed = transactions_uploaded > 0
@@ -273,31 +264,7 @@ def sync_to_ab(actual, mapping_list, debug_mode=None):
             commit_result = actual.commit()
             if DEBUG_SYNC:
                 logging.info(f"Commit result: {commit_result}")
-
-            # Get sync changes
-            request = SyncRequest(
-                {
-                    "fileId": actual._file.file_id,
-                    "groupId": actual._file.group_id,
-                    "keyId": actual._file.encrypt_key_id,
-                }
-            )
-            # Pass datetime object directly
-            request.set_timestamp(
-                client_id=actual._client.client_id, now=datetime.now()
-            )
-            changes = actual.sync_sync(request)
-            if DEBUG_SYNC:
-                logging.info(
-                    f"Sync changes: {changes.get_messages(actual._master_key)}"
-                )
-
-            # Get downloaded budget data
-            file_bytes = actual.download_user_file(actual._file.file_id)
-            if DEBUG_SYNC:
-                logging.info(f"Downloaded budget size: {len(file_bytes)} bytes")
-
-            actual.download_budget()  # Force refresh after commit
+            actual.download_budget()
         except Exception as e:
             logging.error(f"Error during commit: {str(e)}")
             logging.error(f"Error type: {type(e)}")

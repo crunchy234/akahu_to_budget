@@ -6,20 +6,25 @@ import json
 import logging
 import pandas as pd
 import requests
-from actual.queries import (
-    create_transaction,
-    get_ruleset,
-    reconcile_transaction,
-    get_categories,
-    get_payees,
-    get_account,
-    match_transaction,
-)
 from typing import Dict
 
 from modules.account_fetcher import get_actual_balance
-from modules.config import AKAHU_HEADERS, AKAHU_ENDPOINT
+from modules.config import AKAHU_HEADERS, RUN_SYNC_TO_AB, AKAHU_ENDPOINT
 from modules.pushcut_notifier import pushcut_notifier
+
+
+if RUN_SYNC_TO_AB:
+    from actual.queries import (
+        create_transaction,
+        get_ruleset,
+        reconcile_transaction,
+        get_categories,
+        get_payee,
+        get_payees,
+        get_account,
+        match_transaction,
+        set_transaction_payee,
+    )
 
 
 def refresh_akahu_account_transactions():
@@ -232,9 +237,15 @@ def load_transactions_into_actual(transactions, mapping_entry, actual, debug_mod
         transaction_date = txn.get("date")
         payee_name = txn.get("description")
         notes = txn.get("description")
-        amount = decimal.Decimal(txn.get("amount"))
-        amount = amount.quantize(decimal.Decimal("0.0001"))
         imported_id = txn.get("_id")
+        raw_amount = txn.get("amount")
+        try:
+            amount = decimal.Decimal(raw_amount).quantize(decimal.Decimal("0.0001"))
+        except (decimal.InvalidOperation, TypeError, ValueError) as e:
+            raise RuntimeError(
+                f"Could not parse amount={raw_amount!r} for Akahu transaction "
+                f"{imported_id} (date={transaction_date}, payee={payee_name!r})"
+            ) from e
         cleared = True
 
         try:
@@ -306,7 +317,6 @@ def load_transactions_into_actual(transactions, mapping_entry, actual, debug_mod
                     )
             else:
                 # Normal non-debug path using reconcile_transaction
-                # Normal non-debug path using reconcile_transaction
                 # Set update_existing=False since we want to detect duplicates but not update them
                 reconciled_transaction = reconcile_transaction(
                     actual.session,
@@ -335,7 +345,27 @@ def load_transactions_into_actual(transactions, mapping_entry, actual, debug_mod
             if ruleset is not None:
                 # Store transaction state before running rules
                 pre_rules_state = vars(reconciled_transaction).copy()
+                pre_rules_payee_id = reconciled_transaction.payee_id
                 ruleset.run(reconciled_transaction)
+
+                # ruleset.run assigns payee_id directly, which bypasses
+                # set_transaction_payee's side effect of materialising the
+                # mirror transaction when the new payee points at another
+                # account. Re-apply via set_transaction_payee so transfers
+                # are created at import time rather than only after the
+                # user edits the transaction in the Actual UI.
+                new_payee_id = reconciled_transaction.payee_id
+                if new_payee_id and new_payee_id != pre_rules_payee_id:
+                    new_payee = get_payee(actual.session, new_payee_id)
+                    if new_payee is not None and new_payee.transfer_acct:
+                        # Ensure .account is materialised; set_transaction_payee
+                        # dereferences transaction.account.payee.id internally
+                        # and that relationship is lazy-loaded.
+                        actual.session.flush()
+                        reconciled_transaction.payee_id = pre_rules_payee_id
+                        set_transaction_payee(
+                            actual.session, reconciled_transaction, new_payee
+                        )
 
                 # Compare states to see if rules modified the transaction
                 post_rules_state = vars(reconciled_transaction)

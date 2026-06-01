@@ -1,63 +1,23 @@
-"""
-Script for syncing transactions from Akahu to YNAB and Actual Budget.
-Also provides webhook endpoints for real-time transaction syncing.
-"""
+ flask_app.py
+4 conflicts
 
-from contextlib import contextmanager
 import os
 import logging
 import argparse
 import signal
 import sys
-import requests
-from actual import Actual
 
-# Import from our modules package
-from modules.sync_handler import sync_to_ab, sync_to_ynab
-from modules.account_mapper import load_existing_mapping
-from modules.config import AKAHU_ENDPOINT, AKAHU_HEADERS
-from modules.config import RUN_SYNC_TO_AB, RUN_SYNC_TO_YNAB
-from modules.config import ENVs
+from modules.mapping_store import load_existing_mapping
+from modules.config import AKAHU_ENDPOINT, AKAHU_HEADERS, RUN_SYNC_TO_AB
+from modules.sync_runner import configure_logging, get_actual_client, run_sync
 from modules.webhook_handler import create_flask_app
+import sure_client
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("app.log"),
-        logging.StreamHandler()
-    ]
-)
-
-
-@contextmanager
-def get_actual_client():
-    """Context manager that yields an Actual client if RUN_SYNC_TO_AB is True,
-    or None otherwise.
-    This is needed because actualpy only works with contextmanager
-    """
-    if RUN_SYNC_TO_AB:
-        try:
-            logging.info(f"Attempting to connect to Actual server at {ENVs['ACTUAL_SERVER_URL']}")
-            
-            with Actual(
-                base_url=ENVs['ACTUAL_SERVER_URL'],
-                password=ENVs['ACTUAL_PASSWORD'],
-                file=ENVs['ACTUAL_SYNC_ID'],
-                encryption_password=ENVs['ACTUAL_ENCRYPTION_KEY']
-            ) as client:
-                logging.info(f"Connected to AB: {client}")
-                yield client
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Failed to connect to Actual server: {str(e)}")
-            if hasattr(e, 'response') and e.response is not None:
-                logging.error(f"Response status: {e.response.status_code}")
-                logging.error(f"Response headers: {dict(e.response.headers)}")
-                logging.error(f"Response content: {e.response.text[:500]}")
-            raise RuntimeError(f"Failed to connect to Actual server: {str(e)}") from None
-    else:
-        yield None
+# actualpy is an optional dependency; modules.config raises at import time if
+# RUN_SYNC_TO_AB=true and it's missing. Importing here is unconditional because
+# get_actual_client() guards on RUN_SYNC_TO_AB before constructing the client.
+if RUN_SYNC_TO_AB:
+    from actual import Actual
 
 
 # Create and export the Flask app for WSGI
@@ -67,6 +27,7 @@ def signal_handler(sig, frame):
 
 signal.signal(signal.SIGINT, signal_handler)  # Handle Ctrl+C
 signal.signal(signal.SIGTERM, signal_handler)  # Handle kill
+
 
 def create_application():
     """Create Flask application."""
@@ -81,41 +42,8 @@ def create_application():
         return app
 
 
-def run_sync(account_ids=None, debug_mode=None):
-    """Run sync operations directly.
-    
-    Args:
-        account_ids (list[str], optional): List of Akahu account IDs to sync. If None, all accounts will be synced.
-        debug_mode (str, optional): Debug mode setting. 'all' to print all transaction IDs, or a specific Akahu transaction ID for verbose debugging.
-    """
-    logging.info("Starting direct sync...")
-    actual_count = ynab_count = 0
-
-    _, _, _, mapping_list = load_existing_mapping()
-    
-    if account_ids:
-        # Filter mapping_list to only include specified accounts
-        filtered_mapping = {k: v for k, v in mapping_list.items() if k in account_ids}
-        if not filtered_mapping:
-            logging.warning(f"No matching accounts found for IDs: {account_ids}")
-            return
-        logging.info(f"Syncing specific accounts: {', '.join(account_ids)}")
-        mapping_list = filtered_mapping
-
-    with get_actual_client() as actual_client:
-        if RUN_SYNC_TO_AB and actual_client:
-            actual_client.download_budget()
-            actual_count = sync_to_ab(actual_client, mapping_list, debug_mode=debug_mode)
-            logging.info(f"Synced {actual_count} accounts to Actual Budget.")
-
-        if RUN_SYNC_TO_YNAB:
-            ynab_count = sync_to_ynab(mapping_list, debug_mode=debug_mode)
-            logging.info(f"Synced {ynab_count} accounts to YNAB.")
-
-    logging.info(f"Sync completed. Actual count: {actual_count}, YNAB count: {ynab_count}")
-
-
 # Create and expose the Flask application for WSGI if not running in sync mode
+configure_logging()
 application = None
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the Flask app or perform direct sync.")
@@ -125,6 +53,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.sync:
+        logging.warning(
+            "python flask_app.py --sync is deprecated and may be removed in a future version. "
+            "Use python sync_cli.py instead."
+        )
         account_ids = args.accounts.split(',') if args.accounts else None
         run_sync(account_ids, debug_mode=args.debug)
     else:
